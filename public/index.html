@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EllenChat — la tua assistente AI</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>" />
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <button class="btn-new-chat" id="btnNewChat">
+          <span class="plus">+</span> Nuova chat
+        </button>
+      </div>
+      <nav class="conversations" id="conversationList"></nav>
+      <div class="sidebar-footer">
+        <div class="backend-badge" id="backendBadge">
+          <span class="dot"></span>
+          <span id="backendLabel">connessione…</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Area principale -->
+    <main class="main">
+      <header class="topbar">
+        <button class="btn-toggle-sidebar" id="btnToggleSidebar" aria-label="Mostra/nascondi menu">☰</button>
+        <div class="brand">
+          <div class="avatar avatar-brand" id="brandAvatar">E</div>
+          <div class="brand-text">
+            <span class="brand-name" id="assistantNameEl">Ellen</span>
+            <span class="brand-sub">assistente virtuale</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="chat-scroll" id="chatScroll">
+        <div class="chat" id="chat">
+          <!-- Schermata di benvenuto -->
+          <div class="welcome" id="welcome">
+            <div class="welcome-avatar" id="welcomeAvatar">E</div>
+            <h1>Ciao! Sono <span id="welcomeName">Ellen</span> 👋</h1>
+            <p>Chiedimi qualsiasi cosa: sono qui per aiutarti.</p>
+            <div class="suggestions" id="suggestions">
+              <button class="suggestion">Chi sei e cosa sai fare?</button>
+              <button class="suggestion">Raccontami qualcosa di interessante</button>
+              <button class="suggestion">Aiutami a scrivere un messaggio</button>
+              <button class="suggestion">Spiegami un concetto difficile</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="composer-wrap">
+        <form class="composer" id="composer">
+          <textarea id="input" rows="1" placeholder="Scrivi un messaggio…" autocomplete="off"></textarea>
+          <button type="submit" id="btnSend" aria-label="Invia" disabled>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+          </button>
+        </form>
+        <p class="disclaimer">Le risposte dell'AI possono contenere errori. Verifica le informazioni importanti.</p>
+      </footer>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
