@@ -22,6 +22,7 @@
           <span class="dot"></span>
           <span id="backendLabel">connessione…</span>
         </div>
+        <button class="btn-settings" id="btnSettings" aria-label="Impostazioni">⚙️ Impostazioni</button>
       </div>
     </aside>
 
@@ -65,6 +66,38 @@
         <p class="disclaimer">Le risposte dell'AI possono contenere errori. Verifica le informazioni importanti.</p>
       </footer>
     </main>
+  </div>
+
+  <!-- Modal impostazioni -->
+  <div class="modal-overlay" id="settingsOverlay" hidden>
+    <div class="modal" role="dialog" aria-labelledby="settingsTitle">
+      <h2 id="settingsTitle">Impostazioni</h2>
+      <p class="modal-sub">Configura l'accesso diretto all'API DeepSeek (necessario nell'app Android, opzionale sul web).</p>
+
+      <label class="field">
+        <span>Chiave API DeepSeek</span>
+        <input type="password" id="dsKey" placeholder="sk-..." autocomplete="off" />
+        <small>La ottieni su <a href="https://platform.deepseek.com" target="_blank" rel="noopener">platform.deepseek.com</a>. Viene salvata solo su questo dispositivo.</small>
+      </label>
+
+      <label class="field">
+        <span>Modello</span>
+        <select id="dsModel">
+          <option value="deepseek-chat">deepseek-chat (veloce, consigliato)</option>
+          <option value="deepseek-reasoner">deepseek-reasoner (ragionamento)</option>
+        </select>
+      </label>
+
+      <label class="field field-check" id="forceDirectWrap">
+        <input type="checkbox" id="dsForceDirect" />
+        <span>Usa DeepSeek direttamente anche quando il server è disponibile</span>
+      </label>
+
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btnSettingsClose">Annulla</button>
+        <button class="btn-primary" id="btnSettingsSave">Salva</button>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>

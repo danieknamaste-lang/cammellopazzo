@@ -1,13 +1,16 @@
 /**
  * EllenChat locale — server Node.js
  *
- * Backend a tre livelli, scelto automaticamente all'avvio:
- *   1. Claude API   → se è impostata ANTHROPIC_API_KEY
- *   2. Ollama       → se un server Ollama risponde su OLLAMA_URL (default http://localhost:11434)
- *   3. Demo         → nessuna configurazione: risposte simulate, utile per provare la UI
+ * Backend a quattro livelli, scelto automaticamente all'avvio:
+ *   1. DeepSeek API → se è impostata DEEPSEEK_API_KEY
+ *   2. Claude API   → se è impostata ANTHROPIC_API_KEY
+ *   3. Ollama       → se un server Ollama risponde su OLLAMA_URL (default http://localhost:11434)
+ *   4. Demo         → nessuna configurazione: risposte simulate, utile per provare la UI
  *
  * Variabili d'ambiente:
  *   PORT              porta del server (default 3000)
+ *   DEEPSEEK_API_KEY  chiave API DeepSeek (opzionale)
+ *   DEEPSEEK_MODEL    modello DeepSeek (default deepseek-chat)
  *   ANTHROPIC_API_KEY chiave API Anthropic (opzionale)
  *   CLAUDE_MODEL      modello Claude (default claude-opus-4-8)
  *   OLLAMA_URL        endpoint Ollama (default http://localhost:11434)
@@ -20,15 +23,23 @@ const express = require('express');
 const path = require('path');
 
 const PORT = process.env.PORT || 3000;
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+const DEEPSEEK_API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/chat/completions';
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-opus-4-8';
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 const ASSISTANT_NAME = process.env.ASSISTANT_NAME || 'Ellen';
 
 const DEFAULT_SYSTEM_PROMPT =
   process.env.SYSTEM_PROMPT ||
-  `Sei ${ASSISTANT_NAME}, un'assistente virtuale calorosa, empatica e preparata. ` +
-  `Rispondi nella lingua dell'utente (di solito italiano), in modo chiaro e conciso. ` +
-  `Usa il markdown quando aiuta la leggibilità (elenchi, grassetto, blocchi di codice).`;
+  `Sei ${ASSISTANT_NAME}, un'assistente virtuale ispirata agli scritti di Ellen G. White, ` +
+  `autrice cristiana e cofondatrice della Chiesa Avventista del Settimo Giorno. ` +
+  `Conosci a fondo le sue opere principali (La via migliore, Il gran conflitto, ` +
+  `La speranza dell'uomo, Patriarchi e profeti, Ministero della guarigione), la Bibbia ` +
+  `e i principi avventisti su fede, sabato, salute ed educazione. ` +
+  `Rispondi con calore, empatia e incoraggiamento. Quando è utile, cita le opere di ` +
+  `Ellen White o passi biblici indicando la fonte, e distingui sempre le citazioni ` +
+  `dalle tue interpretazioni. Rispondi nella lingua dell'utente (di solito italiano) ` +
+  `e usa il markdown quando aiuta la leggibilità.`;
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -41,6 +52,10 @@ app.use(express.static(path.join(__dirname, 'public')));
 let backend = { type: 'demo', model: 'demo' };
 
 async function detectBackend() {
+  if (process.env.DEEPSEEK_API_KEY) {
+    backend = { type: 'deepseek', model: DEEPSEEK_MODEL };
+    return;
+  }
   if (process.env.ANTHROPIC_API_KEY) {
     backend = { type: 'anthropic', model: CLAUDE_MODEL };
     return;
@@ -90,7 +105,9 @@ app.post('/api/chat', async (req, res) => {
   const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
 
   try {
-    if (backend.type === 'anthropic') {
+    if (backend.type === 'deepseek') {
+      await streamDeepSeek(messages, send);
+    } else if (backend.type === 'anthropic') {
       await streamAnthropic(messages, send);
     } else if (backend.type === 'ollama') {
       await streamOllama(messages, send, req);
@@ -103,6 +120,48 @@ app.post('/api/chat', async (req, res) => {
   }
   res.end();
 });
+
+// ---------------------------------------------------------------------------
+// Backend: DeepSeek API (OpenAI-compatibile, streaming SSE)
+// ---------------------------------------------------------------------------
+
+async function streamDeepSeek(messages, send) {
+  const res = await fetch(DEEPSEEK_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: DEEPSEEK_MODEL,
+      stream: true,
+      messages: [{ role: 'system', content: DEFAULT_SYSTEM_PROMPT }, ...messages],
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`DeepSeek ha risposto ${res.status}: ${body.slice(0, 200)}`);
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for await (const chunk of res.body) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let idx;
+    while ((idx = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (payload === '[DONE]') return;
+      const data = JSON.parse(payload);
+      const delta = data.choices && data.choices[0] && data.choices[0].delta;
+      if (delta && delta.content) {
+        send({ type: 'delta', text: delta.content });
+      }
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Backend: Claude API (streaming con SDK ufficiale)
@@ -172,10 +231,12 @@ async function streamDemo(messages, send) {
     `Ciao! Sono **${ASSISTANT_NAME}** in *modalità demo* — al momento non è configurato ` +
     `nessun modello AI, quindi non posso rispondere davvero alla tua domanda:\n\n` +
     `> ${String(last.content).slice(0, 200)}\n\n` +
-    `Per attivare le risposte vere hai due opzioni:\n\n` +
-    `1. **Claude API** — avvia il server con la tua chiave:\n` +
+    `Per attivare le risposte vere hai tre opzioni:\n\n` +
+    `1. **DeepSeek API** — avvia il server con la tua chiave:\n` +
+    `   \`\`\`bash\n   DEEPSEEK_API_KEY=sk-... npm start\n   \`\`\`\n` +
+    `2. **Claude API** — avvia il server con la tua chiave:\n` +
     `   \`\`\`bash\n   ANTHROPIC_API_KEY=sk-ant-... npm start\n   \`\`\`\n` +
-    `2. **Ollama** (gratuito, 100% locale) — installa [Ollama](https://ollama.com), poi:\n` +
+    `3. **Ollama** (gratuito, 100% locale) — installa [Ollama](https://ollama.com), poi:\n` +
     `   \`\`\`bash\n   ollama pull llama3.2\n   npm start\n   \`\`\`\n\n` +
     `L'interfaccia che stai usando (streaming, cronologia, conversazioni multiple) ` +
     `funziona già esattamente come farà con un modello vero. 🚀`;
@@ -194,7 +255,7 @@ detectBackend().then(() => {
     console.log(`✅ EllenChat locale avviata su http://localhost:${PORT}`);
     console.log(`   Backend: ${backend.type} (modello: ${backend.model})`);
     if (backend.type === 'demo') {
-      console.log('   Suggerimento: imposta ANTHROPIC_API_KEY o avvia Ollama per risposte vere.');
+      console.log('   Suggerimento: imposta DEEPSEEK_API_KEY (o ANTHROPIC_API_KEY, o avvia Ollama) per risposte vere.');
     }
   });
 });

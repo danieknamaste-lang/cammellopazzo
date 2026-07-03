@@ -1,0 +1,8 @@
+{
+  "appId": "com.ellenchat.app",
+  "appName": "EllenChat",
+  "webDir": "public",
+  "server": {
+    "androidScheme": "https"
+  }
+}

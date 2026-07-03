@@ -5,11 +5,47 @@
 
   // ---------- Stato ----------
   const STORAGE_KEY = 'ellenchat.conversations';
+  const SETTINGS_KEY = 'ellenchat.settings';
+
+  // Persona usata in modalità diretta (nell'app Android non c'è un server)
+  const SYSTEM_PROMPT =
+    "Sei Ellen, un'assistente virtuale ispirata agli scritti di Ellen G. White, " +
+    'autrice cristiana e cofondatrice della Chiesa Avventista del Settimo Giorno. ' +
+    'Conosci a fondo le sue opere principali (La via migliore, Il gran conflitto, ' +
+    "La speranza dell'uomo, Patriarchi e profeti, Ministero della guarigione), la Bibbia " +
+    'e i principi avventisti su fede, sabato, salute ed educazione. ' +
+    'Rispondi con calore, empatia e incoraggiamento. Quando è utile, cita le opere di ' +
+    'Ellen White o passi biblici indicando la fonte, e distingui sempre le citazioni ' +
+    "dalle tue interpretazioni. Rispondi nella lingua dell'utente (di solito italiano) " +
+    'e usa il markdown quando aiuta la leggibilità.';
+
+  const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions';
 
   let conversations = loadConversations(); // [{id, title, messages:[{role,content}]}]
   let currentId = null;
   let isStreaming = false;
   let assistantName = 'Ellen';
+  let serverAvailable = false;
+  let settings = loadSettings(); // {dsKey, dsModel, forceDirect}
+
+  function loadSettings() {
+    try {
+      return Object.assign(
+        { dsKey: '', dsModel: 'deepseek-chat', forceDirect: false },
+        JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}
+      );
+    } catch {
+      return { dsKey: '', dsModel: 'deepseek-chat', forceDirect: false };
+    }
+  }
+
+  function saveSettings() {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  }
+
+  function isDirectMode() {
+    return !serverAvailable || (settings.forceDirect && settings.dsKey);
+  }
 
   // ---------- Elementi ----------
   const $ = (id) => document.getElementById(id);
@@ -22,26 +58,49 @@
   const convListEl = $('conversationList');
 
   // ---------- Init ----------
+  function updateBadge(status) {
+    const badge = $('backendBadge');
+    badge.classList.remove('online', 'demo');
+    if (isDirectMode()) {
+      if (settings.dsKey) {
+        $('backendLabel').textContent = `DeepSeek · ${settings.dsModel}`;
+        badge.classList.add('online');
+      } else {
+        $('backendLabel').textContent = 'Configura DeepSeek ⚙️';
+        badge.classList.add('demo');
+      }
+      return;
+    }
+    const labels = {
+      deepseek: `DeepSeek · ${status.model}`,
+      anthropic: `Claude API · ${status.model}`,
+      ollama: `Ollama · ${status.model}`,
+      demo: 'Modalità demo',
+    };
+    $('backendLabel').textContent = labels[status.backend] || status.backend;
+    badge.classList.add(status.backend === 'demo' ? 'demo' : 'online');
+  }
+
   fetch('/api/status')
-    .then((r) => r.json())
+    .then((r) => {
+      if (!r.ok) throw new Error('no server');
+      return r.json();
+    })
     .then((s) => {
+      serverAvailable = true;
       assistantName = s.assistantName || 'Ellen';
       const letter = assistantName[0].toUpperCase();
       $('assistantNameEl').textContent = assistantName;
       $('welcomeName').textContent = assistantName;
       $('brandAvatar').textContent = letter;
       $('welcomeAvatar').textContent = letter;
-      const badge = $('backendBadge');
-      const labels = {
-        anthropic: `Claude API · ${s.model}`,
-        ollama: `Ollama · ${s.model}`,
-        demo: 'Modalità demo',
-      };
-      $('backendLabel').textContent = labels[s.backend] || s.backend;
-      badge.classList.add(s.backend === 'demo' ? 'demo' : 'online');
+      updateBadge(s);
     })
     .catch(() => {
-      $('backendLabel').textContent = 'offline';
+      // Nessun server (es. app Android): modalità diretta DeepSeek
+      serverAvailable = false;
+      updateBadge({});
+      if (!settings.dsKey) openSettings();
     });
 
   renderConversationList();
@@ -56,6 +115,34 @@
 
   $('btnToggleSidebar').addEventListener('click', () => {
     $('sidebar').classList.toggle('hidden');
+  });
+
+  // ---------- Impostazioni ----------
+  function openSettings() {
+    $('dsKey').value = settings.dsKey;
+    $('dsModel').value = settings.dsModel;
+    $('dsForceDirect').checked = settings.forceDirect;
+    $('forceDirectWrap').style.display = serverAvailable ? '' : 'none';
+    $('settingsOverlay').hidden = false;
+  }
+
+  $('btnSettings').addEventListener('click', openSettings);
+  $('btnSettingsClose').addEventListener('click', () => {
+    $('settingsOverlay').hidden = true;
+  });
+  $('settingsOverlay').addEventListener('click', (e) => {
+    if (e.target === $('settingsOverlay')) $('settingsOverlay').hidden = true;
+  });
+  $('btnSettingsSave').addEventListener('click', () => {
+    settings.dsKey = $('dsKey').value.trim();
+    settings.dsModel = $('dsModel').value;
+    settings.forceDirect = $('dsForceDirect').checked;
+    saveSettings();
+    updateBadge({});
+    if (serverAvailable && !isDirectMode()) {
+      fetch('/api/status').then((r) => r.json()).then(updateBadge).catch(() => {});
+    }
+    $('settingsOverlay').hidden = true;
   });
 
   $('suggestions').addEventListener('click', (e) => {
@@ -205,38 +292,21 @@
     scrollToBottom();
 
     let fullText = '';
+    const onDelta = (text) => {
+      fullText += text;
+      bubble.innerHTML = renderMarkdown(fullText);
+      scrollToBottom();
+    };
+
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: conv.messages }),
-      });
-      if (!res.ok) throw new Error(`Errore server (${res.status})`);
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        let idx;
-        while ((idx = buffer.indexOf('\n\n')) >= 0) {
-          const raw = buffer.slice(0, idx);
-          buffer = buffer.slice(idx + 2);
-          const line = raw.replace(/^data:\s*/, '').trim();
-          if (!line) continue;
-          const event = JSON.parse(line);
-          if (event.type === 'delta') {
-            fullText += event.text;
-            bubble.innerHTML = renderMarkdown(fullText);
-            scrollToBottom();
-          } else if (event.type === 'error') {
-            throw new Error(event.message);
-          }
+      if (isDirectMode()) {
+        if (!settings.dsKey) {
+          openSettings();
+          throw new Error('Inserisci la chiave API DeepSeek nelle impostazioni.');
         }
+        await streamDeepSeekDirect(conv.messages, onDelta);
+      } else {
+        await streamViaServer(conv.messages, onDelta);
       }
     } catch (err) {
       fullText = fullText || `⚠️ Si è verificato un errore: ${err.message}`;
@@ -248,6 +318,117 @@
     isStreaming = false;
     btnSend.disabled = inputEl.value.trim() === '';
     inputEl.focus();
+  }
+
+  // Modalità server: POST /api/chat, eventi SSE {type:'delta'|'error'|'done'}
+  async function streamViaServer(messages, onDelta) {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages }),
+    });
+    if (!res.ok) throw new Error(`Errore server (${res.status})`);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf('\n\n')) >= 0) {
+        const raw = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const line = raw.replace(/^data:\s*/, '').trim();
+        if (!line) continue;
+        const event = JSON.parse(line);
+        if (event.type === 'delta') onDelta(event.text);
+        else if (event.type === 'error') throw new Error(event.message);
+      }
+    }
+  }
+
+  // Modalità diretta: chiamata all'API DeepSeek dal dispositivo (usata nell'APK)
+  async function streamDeepSeekDirect(messages, onDelta) {
+    const body = {
+      model: settings.dsModel,
+      stream: true,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        ...messages.map((m) => ({ role: m.role, content: m.content })),
+      ],
+    };
+
+    let res;
+    try {
+      res = await fetch(DEEPSEEK_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${settings.dsKey}`,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      // Rete/CORS bloccati nel WebView: riprova con il plugin HTTP nativo
+      // di Capacitor (senza streaming: la risposta arriva tutta insieme).
+      return await deepSeekViaCapacitor(body, onDelta);
+    }
+
+    if (res.status === 401) throw new Error('Chiave API DeepSeek non valida (401). Controlla le impostazioni.');
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      throw new Error(`DeepSeek ha risposto ${res.status}. ${errBody.slice(0, 200)}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (payload === '[DONE]') return;
+        const data = JSON.parse(payload);
+        const delta = data.choices && data.choices[0] && data.choices[0].delta;
+        if (delta && delta.content) onDelta(delta.content);
+      }
+    }
+  }
+
+  async function deepSeekViaCapacitor(body, onDelta) {
+    const http = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp;
+    if (!http) throw new Error('Impossibile raggiungere api.deepseek.com (rete o CORS).');
+
+    const res = await http.request({
+      url: DEEPSEEK_URL,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${settings.dsKey}`,
+      },
+      data: Object.assign({}, body, { stream: false }),
+    });
+    if (res.status === 401) throw new Error('Chiave API DeepSeek non valida (401). Controlla le impostazioni.');
+    if (res.status < 200 || res.status >= 300) {
+      throw new Error(`DeepSeek ha risposto ${res.status}.`);
+    }
+    const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+    const text = data.choices && data.choices[0] && data.choices[0].message
+      ? data.choices[0].message.content
+      : '';
+    // Simula lo streaming per uniformità visiva
+    for (const word of String(text).split(/(?<=\s)/)) {
+      onDelta(word);
+      await new Promise((r) => setTimeout(r, 8));
+    }
   }
 
   // ---------- Mini renderer Markdown (con escaping HTML) ----------
