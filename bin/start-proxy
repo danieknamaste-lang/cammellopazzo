@@ -1,0 +1,24 @@
+#!/bin/bash
+# Start the Ollama-DeepSeek proxy
+if [ -z "$DEEPSEEK_API_KEY" ]; then
+  echo "ERROR: DEEPSEEK_API_KEY non impostata"
+  echo "Uso: DEEPSEEK_API_KEY=sk-... start-proxy"
+  exit 1
+fi
+
+# Kill any existing
+pkill -f "ollama-deepseek-proxy" 2>/dev/null
+
+# Start proxy on port 11434
+nohup env DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" python3 -u "$(dirname "$0")/ollama-deepseek-proxy" > /tmp/deepseek-proxy.log 2>&1 &
+PID=$!
+
+sleep 1
+if kill -0 $PID 2>/dev/null; then
+  echo "Proxy avviato (PID: $PID) su http://127.0.0.1:11434"
+  echo "Log: /tmp/deepseek-proxy.log"
+else
+  echo "ERRORE: proxy non avviato"
+  cat /tmp/deepseek-proxy.log
+  exit 1
+fi
