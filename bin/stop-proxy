@@ -1,2 +1,43 @@
 #!/bin/bash
-pkill -f "ollama-deepseek-proxy" && echo "Proxy fermato" || echo "Proxy non in esecuzione"
+# Stop the Ollama-DeepSeek proxy and its supervisor.
+set -u
+
+RUNDIR="${TMPDIR:-/tmp}"
+SUP_PIDFILE="$RUNDIR/deepseek-proxy.supervisor.pid"
+STOPFLAG="$RUNDIR/deepseek-proxy.stop"
+
+# Tell the supervisor loop to stop restarting the proxy.
+: > "$STOPFLAG"
+
+stopped=0
+
+# Kill the supervisor (whole process group) if we have its PID.
+if [ -f "$SUP_PIDFILE" ]; then
+  SUP_PID="$(cat "$SUP_PIDFILE" 2>/dev/null)"
+  if [ -n "$SUP_PID" ] && kill -0 "$SUP_PID" 2>/dev/null; then
+    kill -- "-$SUP_PID" 2>/dev/null || kill "$SUP_PID" 2>/dev/null
+    stopped=1
+  fi
+  rm -f "$SUP_PIDFILE"
+fi
+
+# Ask any lingering proxy process to stop, then give it a moment to shut down
+# gracefully before forcing it.
+pkill -f "ollama-deepseek-proxy" 2>/dev/null && stopped=1
+for _ in 1 2 3 4 5 6; do
+  pgrep -f "ollama-deepseek-proxy" >/dev/null 2>&1 || break
+  sleep 0.5
+done
+# Anything still alive gets killed outright.
+pkill -9 -f "ollama-deepseek-proxy" 2>/dev/null
+
+# Release the Android wake lock if we took one.
+command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock 2>/dev/null
+
+rm -f "$STOPFLAG"
+
+if [ "$stopped" -eq 1 ]; then
+  echo "Proxy fermato"
+else
+  echo "Proxy non in esecuzione"
+fi

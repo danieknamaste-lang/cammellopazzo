@@ -1,21 +1,55 @@
 #!/usr/bin/env python3
-"""Threaded Ollama-to-DeepSeek proxy with request logging."""
+"""Threaded Ollama-to-DeepSeek proxy with request logging.
 
-import json, os, sys, urllib.request, urllib.error, socketserver, traceback
+Listens on 127.0.0.1:11434 (the Ollama default port) and translates the
+subset of the Ollama HTTP API that Codex CLI uses into DeepSeek's
+OpenAI-compatible Chat Completions API.
+
+Stability notes (Android/Termux):
+  * SIGHUP is ignored so the proxy survives its launching shell exiting
+    (belt-and-suspenders alongside nohup/setsid in start-proxy).
+  * SIGTERM/SIGINT trigger a clean shutdown instead of a stack trace.
+  * Client disconnects (BrokenPipeError/ConnectionResetError) are swallowed
+    per-request so a client that hangs up mid-stream never takes a worker
+    thread — or the process — down.
+  * Worker threads are daemonic so a stuck upstream request can't block exit.
+"""
+
+import json, os, sys, signal, urllib.request, urllib.error, socketserver, traceback
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
 HOST, PORT = "127.0.0.1", 11434
+
+# Models we forward through unchanged; anything else falls back to DEFAULT_MODEL.
+KNOWN_MODELS = ("deepseek-chat", "deepseek-coder", "deepseek-reasoner")
+DEFAULT_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+
 
 def log(msg):
     print(msg, flush=True)
 
+
+def resolve_model(name):
+    """Map an Ollama-style model name onto a DeepSeek model id."""
+    name = (name or "").split(":", 1)[0]  # strip an Ollama ":latest"-style tag
+    return name if name in KNOWN_MODELS else DEFAULT_MODEL
+
+
 try:
     class ThreadedServer(socketserver.ThreadingMixIn, HTTPServer):
         allow_reuse_address = True
+        daemon_threads = True
 
     class Handler(BaseHTTPRequestHandler):
+        def _safe_write(self, data):
+            """Write to the client, tolerating a client that has hung up."""
+            try:
+                self.wfile.write(data)
+                return True
+            except (BrokenPipeError, ConnectionResetError):
+                return False
+
         def do_GET(self):
             log(f"GET {self.path}")
             if self.path == "/api/tags":
@@ -30,16 +64,16 @@ try:
             body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
             try:
                 req = json.loads(body)
-            except:
+            except Exception:
                 return self.json(400, {"error": "bad json"})
             log(f"POST {self.path} model={req.get('model')} stream={req.get('stream')}")
-            
+
             if self.path in ("/api/chat", "/api/generate"):
                 messages = req.get("messages", [])
                 if not messages and self.path == "/api/generate":
                     messages = [{"role": "user", "content": req.get("prompt", "")}]
                 stream = req.get("stream", False)
-                model = {"deepseek-chat": "deepseek-chat", "deepseek-coder": "deepseek-coder"}.get(req.get("model", ""), "deepseek-chat")
+                model = resolve_model(req.get("model", ""))
                 payload = {"model": model, "messages": messages, "stream": stream}
                 headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
                 try:
@@ -50,7 +84,8 @@ try:
                             self.send_header("Content-Type", "application/x-ndjson")
                             self.end_headers()
                             buf = ""
-                            while True:
+                            client_gone = False
+                            while not client_gone:
                                 chunk = resp.read(4096)
                                 if not chunk: break
                                 buf += chunk.decode(errors="replace")
@@ -62,16 +97,17 @@ try:
                                             d = json.loads(line[6:])
                                             content = d["choices"][0].get("delta", {}).get("content", "")
                                             if content:
-                                                self.wfile.write(json.dumps({"model": model, "message": {"role": "assistant", "content": content}, "done": False}).encode() + b"\n")
-                                                self.wfile.flush()
-                                        except: pass
-                            self.wfile.write(json.dumps({"model": model, "message": {"role": "assistant", "content": ""}, "done": True}).encode() + b"\n")
-                            self.wfile.flush()
+                                                if not self._safe_write(json.dumps({"model": model, "message": {"role": "assistant", "content": content}, "done": False}).encode() + b"\n"):
+                                                    client_gone = True
+                                                    break
+                                        except Exception: pass
+                            if not client_gone:
+                                self._safe_write(json.dumps({"model": model, "message": {"role": "assistant", "content": ""}, "done": True}).encode() + b"\n")
                         else:
                             data = json.loads(resp.read())
                             c = data["choices"][0]["message"]
                             self.json(200, {"model": model, "message": {"role": c.get("role", "assistant"), "content": c.get("content", "")}, "done": True})
-                    log(f"DeepSeek OK")
+                    log("DeepSeek OK")
                 except urllib.error.HTTPError as e:
                     log(f"DeepSeek HTTP {e.code}")
                     self.json(e.code, {"error": e.read().decode(errors="replace")[:500]})
@@ -84,10 +120,13 @@ try:
                 self.json(404, {"error": "not found"})
 
         def json(self, status, data):
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(data).encode())
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            self._safe_write(json.dumps(data).encode())
 
         def log_message(self, *a): pass
 
@@ -95,9 +134,36 @@ try:
     if not DEEPSEEK_API_KEY:
         log("FATAL: No API key")
         sys.exit(1)
+
     srv = ThreadedServer((HOST, PORT), Handler)
+
+    _shutting_down = False
+
+    def _shutdown(signum, frame):
+        global _shutting_down
+        if _shutting_down:
+            return
+        _shutting_down = True
+        log(f"Signal {signum} received, shutting down")
+        # serve_forever() runs in this (main) thread, so ask it to stop from a
+        # separate thread to avoid deadlocking on the signal handler.
+        import threading
+        threading.Thread(target=srv.shutdown, daemon=True).start()
+
+    # Ignore SIGHUP so losing the controlling terminal doesn't kill us.
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
+
     log(f"Ready on {HOST}:{PORT}")
-    srv.serve_forever()
+    try:
+        srv.serve_forever()
+    finally:
+        srv.server_close()
+    log("Stopped")
+except SystemExit:
+    raise
 except Exception as e:
     log(f"FATAL: {e}")
     traceback.print_exc(file=sys.stderr)
