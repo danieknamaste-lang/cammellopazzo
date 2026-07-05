@@ -1,0 +1,8 @@
+# Dipendenze opzionali "pesanti" (scaricano PyTorch/TensorFlow)
+-r requirements.txt
+
+# Separazione delle sorgenti audio (voce / batteria / basso / altro)
+demucs>=4.0.1
+
+# Trascrizione musicale audio -> MIDI
+basic-pitch>=0.4.0
