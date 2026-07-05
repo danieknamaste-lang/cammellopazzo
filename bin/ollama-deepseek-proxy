@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
-"""Threaded Ollama-to-DeepSeek proxy with request logging.
+"""Threaded Ollama/OpenAI-to-DeepSeek proxy with request logging.
 
 Listens on 127.0.0.1:11434 (the Ollama default port) and translates the
-subset of the Ollama HTTP API that Codex CLI uses into DeepSeek's
-OpenAI-compatible Chat Completions API.
+APIs that Codex CLI uses into DeepSeek's OpenAI-compatible Chat
+Completions API. Three API surfaces are served:
+
+  * Ollama native API (/api/tags, /api/chat, /api/generate, /api/show) —
+    used by older Codex CLI builds (`--oss --local-provider ollama`).
+  * OpenAI Responses API (/v1/responses) — used by recent Codex CLI
+    builds, which talk to the oss/ollama provider over the Responses API.
+    Requests are translated to Chat Completions and the DeepSeek stream is
+    re-emitted as Responses SSE events (text, tool calls, usage).
+  * OpenAI Chat Completions (/v1/chat/completions, /v1/models) — a plain
+    passthrough for providers configured with `wire_api = "chat"`.
 
 Stability notes (Android/Termux):
   * SIGHUP is ignored so the proxy survives its launching shell exiting
@@ -18,8 +27,9 @@ Stability notes (Android/Termux):
 import json, os, sys, signal, urllib.request, urllib.error, socketserver, traceback
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
+DEEPSEEK_URL = os.environ.get("DEEPSEEK_URL", "https://api.deepseek.com/v1/chat/completions")
 HOST, PORT = "127.0.0.1", 11434
+UPSTREAM_TIMEOUT = 300  # socket timeout per read; deepseek-reasoner can pause long between chunks
 
 # Models we forward through unchanged; anything else falls back to DEFAULT_MODEL.
 KNOWN_MODELS = ("deepseek-chat", "deepseek-coder", "deepseek-reasoner")
@@ -36,6 +46,70 @@ def resolve_model(name):
     return name if name in KNOWN_MODELS else DEFAULT_MODEL
 
 
+def _content_text(content):
+    """Flatten Responses-API message content (string or typed parts) to text."""
+    if isinstance(content, str):
+        return content
+    parts = []
+    for c in content or []:
+        if isinstance(c, dict) and isinstance(c.get("text"), str):
+            parts.append(c["text"])
+    return "".join(parts)
+
+
+def responses_input_to_messages(req):
+    """Convert a Responses API request body into Chat Completions messages."""
+    msgs = []
+    if req.get("instructions"):
+        msgs.append({"role": "system", "content": req["instructions"]})
+    inp = req.get("input", [])
+    if isinstance(inp, str):
+        msgs.append({"role": "user", "content": inp})
+        return msgs
+    for item in inp or []:
+        if not isinstance(item, dict):
+            continue
+        t = item.get("type", "message")
+        if t == "message":
+            msgs.append({"role": item.get("role", "user"),
+                         "content": _content_text(item.get("content"))})
+        elif t == "function_call":
+            msgs.append({"role": "assistant", "content": None, "tool_calls": [{
+                "id": item.get("call_id") or item.get("id") or "call_0",
+                "type": "function",
+                "function": {"name": item.get("name", ""),
+                             "arguments": item.get("arguments") or "{}"}}]})
+        elif t == "function_call_output":
+            out = item.get("output", "")
+            if not isinstance(out, str):
+                out = json.dumps(out)
+            msgs.append({"role": "tool", "tool_call_id": item.get("call_id", ""), "content": out})
+        # "reasoning" items and other types have no Chat Completions equivalent
+    return msgs
+
+
+def responses_tools_to_chat(tools):
+    """Convert Responses API tool definitions to Chat Completions format."""
+    out = []
+    for t in tools or []:
+        if isinstance(t, dict) and t.get("type") == "function":
+            out.append({"type": "function", "function": {
+                "name": t.get("name", ""),
+                "description": t.get("description") or "",
+                "parameters": t.get("parameters") or {"type": "object", "properties": {}}}})
+        # built-in tool types (local_shell, web_search, ...) are not supported upstream
+    return out
+
+
+def chat_usage_to_responses(usage):
+    u = usage or {}
+    return {"input_tokens": u.get("prompt_tokens", 0),
+            "input_tokens_details": {"cached_tokens": u.get("prompt_cache_hit_tokens", 0)},
+            "output_tokens": u.get("completion_tokens", 0),
+            "output_tokens_details": {"reasoning_tokens": 0},
+            "total_tokens": u.get("total_tokens", 0)}
+
+
 try:
     class ThreadedServer(socketserver.ThreadingMixIn, HTTPServer):
         allow_reuse_address = True
@@ -50,6 +124,40 @@ try:
             except (BrokenPipeError, ConnectionResetError):
                 return False
 
+        def _deepseek_open(self, payload):
+            """POST to DeepSeek; returns the open response (caller closes)."""
+            headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+            dreq = urllib.request.Request(DEEPSEEK_URL, data=json.dumps(payload).encode(),
+                                          headers=headers, method="POST")
+            return urllib.request.urlopen(dreq, timeout=UPSTREAM_TIMEOUT)
+
+        def _sse_json_events(self, resp):
+            """Yield parsed JSON objects from an upstream SSE stream."""
+            buf = ""
+            while True:
+                chunk = resp.read(4096)
+                if not chunk:
+                    return
+                buf += chunk.decode(errors="replace")
+                lines = buf.split("\n")
+                buf = lines[-1]
+                for line in lines[:-1]:
+                    line = line.rstrip("\r")
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:].strip()
+                    if data == "[DONE]":
+                        return
+                    try:
+                        yield json.loads(data)
+                    except Exception:
+                        pass
+
+        def _sse_emit(self, data):
+            """Send one Responses-API SSE event; returns False if client gone."""
+            payload = f"event: {data['type']}\ndata: {json.dumps(data)}\n\n"
+            return self._safe_write(payload.encode())
+
         def do_GET(self):
             log(f"GET {self.path}")
             if self.path == "/api/tags":
@@ -58,6 +166,9 @@ try:
                                "size": 0, "digest": "sha256:abc123",
                                "details": {"format": "gguf", "family": "deepseek",
                                           "parameter_size": "7B", "quantization_level": "Q4_0"}}]})
+            if self.path == "/v1/models":
+                return self.json(200, {"object": "list", "data": [
+                    {"id": m, "object": "model", "owned_by": "deepseek"} for m in KNOWN_MODELS]})
             self.send_error(404)
 
         def do_POST(self):
@@ -69,55 +180,200 @@ try:
             log(f"POST {self.path} model={req.get('model')} stream={req.get('stream')}")
 
             if self.path in ("/api/chat", "/api/generate"):
-                messages = req.get("messages", [])
-                if not messages and self.path == "/api/generate":
-                    messages = [{"role": "user", "content": req.get("prompt", "")}]
-                stream = req.get("stream", False)
-                model = resolve_model(req.get("model", ""))
-                payload = {"model": model, "messages": messages, "stream": stream}
-                headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
-                try:
-                    dreq = urllib.request.Request(DEEPSEEK_URL, data=json.dumps(payload).encode(), headers=headers, method="POST")
-                    with urllib.request.urlopen(dreq, timeout=120) as resp:
-                        if stream:
-                            self.send_response(200)
-                            self.send_header("Content-Type", "application/x-ndjson")
-                            self.end_headers()
-                            buf = ""
-                            client_gone = False
-                            while not client_gone:
-                                chunk = resp.read(4096)
-                                if not chunk: break
-                                buf += chunk.decode(errors="replace")
-                                lines = buf.split("\n")
-                                buf = lines[-1]
-                                for line in lines[:-1]:
-                                    if line.startswith("data: ") and line[6:].strip() != "[DONE]":
-                                        try:
-                                            d = json.loads(line[6:])
-                                            content = d["choices"][0].get("delta", {}).get("content", "")
-                                            if content:
-                                                if not self._safe_write(json.dumps({"model": model, "message": {"role": "assistant", "content": content}, "done": False}).encode() + b"\n"):
-                                                    client_gone = True
-                                                    break
-                                        except Exception: pass
-                            if not client_gone:
-                                self._safe_write(json.dumps({"model": model, "message": {"role": "assistant", "content": ""}, "done": True}).encode() + b"\n")
-                        else:
-                            data = json.loads(resp.read())
-                            c = data["choices"][0]["message"]
-                            self.json(200, {"model": model, "message": {"role": c.get("role", "assistant"), "content": c.get("content", "")}, "done": True})
-                    log("DeepSeek OK")
-                except urllib.error.HTTPError as e:
-                    log(f"DeepSeek HTTP {e.code}")
-                    self.json(e.code, {"error": e.read().decode(errors="replace")[:500]})
-                except Exception as e:
-                    log(f"DeepSeek error: {e}")
-                    self.json(500, {"error": str(e)})
+                self.handle_ollama(req)
+            elif self.path == "/v1/responses":
+                self.handle_responses(req)
+            elif self.path == "/v1/chat/completions":
+                self.handle_chat_completions(req)
             elif self.path == "/api/show":
                 self.json(200, {"license": "MIT", "modelfile": "", "details": {"family": "deepseek"}})
             else:
+                log(f"404 {self.path}")
                 self.json(404, {"error": "not found"})
+
+        def handle_ollama(self, req):
+            messages = req.get("messages", [])
+            if not messages and self.path == "/api/generate":
+                messages = [{"role": "user", "content": req.get("prompt", "")}]
+            stream = req.get("stream", False)
+            model = resolve_model(req.get("model", ""))
+            payload = {"model": model, "messages": messages, "stream": stream}
+            try:
+                with self._deepseek_open(payload) as resp:
+                    if stream:
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/x-ndjson")
+                        self.end_headers()
+                        client_gone = False
+                        for d in self._sse_json_events(resp):
+                            try:
+                                content = d["choices"][0].get("delta", {}).get("content", "")
+                            except Exception:
+                                continue
+                            if content:
+                                if not self._safe_write(json.dumps({"model": model, "message": {"role": "assistant", "content": content}, "done": False}).encode() + b"\n"):
+                                    client_gone = True
+                                    break
+                        if not client_gone:
+                            self._safe_write(json.dumps({"model": model, "message": {"role": "assistant", "content": ""}, "done": True}).encode() + b"\n")
+                    else:
+                        data = json.loads(resp.read())
+                        c = data["choices"][0]["message"]
+                        self.json(200, {"model": model, "message": {"role": c.get("role", "assistant"), "content": c.get("content", "")}, "done": True})
+                log("DeepSeek OK (ollama)")
+            except urllib.error.HTTPError as e:
+                log(f"DeepSeek HTTP {e.code}")
+                self.json(e.code, {"error": e.read().decode(errors="replace")[:500]})
+            except Exception as e:
+                log(f"DeepSeek error: {e}")
+                self.json(500, {"error": str(e)})
+
+        def handle_chat_completions(self, req):
+            """OpenAI Chat Completions passthrough (wire_api = "chat")."""
+            payload = dict(req)
+            payload["model"] = resolve_model(req.get("model", ""))
+            stream = bool(req.get("stream"))
+            try:
+                upstream = self._deepseek_open(payload)
+            except urllib.error.HTTPError as e:
+                log(f"DeepSeek HTTP {e.code}")
+                return self.json(e.code, {"error": {"message": e.read().decode(errors="replace")[:500]}})
+            except Exception as e:
+                log(f"DeepSeek error: {e}")
+                return self.json(502, {"error": {"message": str(e)}})
+            with upstream:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream" if stream else "application/json")
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                while True:
+                    chunk = upstream.read(4096)
+                    if not chunk or not self._safe_write(chunk):
+                        break
+            log("DeepSeek OK (chat)")
+
+        def handle_responses(self, req):
+            """OpenAI Responses API (what recent Codex CLI builds speak).
+
+            Translates the request to Chat Completions, streams from DeepSeek,
+            and re-emits the stream as Responses SSE events.
+            """
+            model = resolve_model(req.get("model", ""))
+            stream = req.get("stream", True)
+            payload = {"model": model, "messages": responses_input_to_messages(req), "stream": True,
+                       "stream_options": {"include_usage": True}}
+            tools = responses_tools_to_chat(req.get("tools"))
+            if tools:
+                payload["tools"] = tools
+                if req.get("tool_choice") in ("auto", "none", "required"):
+                    payload["tool_choice"] = req["tool_choice"]
+            if req.get("temperature") is not None:
+                payload["temperature"] = req["temperature"]
+            if req.get("max_output_tokens"):
+                payload["max_tokens"] = req["max_output_tokens"]
+            if not stream:
+                payload["stream"] = False
+                del payload["stream_options"]
+
+            resp_id = "resp_" + os.urandom(8).hex()
+            msg_id = "msg_" + os.urandom(8).hex()
+
+            try:
+                upstream = self._deepseek_open(payload)
+            except urllib.error.HTTPError as e:
+                log(f"DeepSeek HTTP {e.code}")
+                return self.json(e.code, {"error": {"message": e.read().decode(errors="replace")[:500]}})
+            except Exception as e:
+                log(f"DeepSeek error: {e}")
+                return self.json(502, {"error": {"message": str(e)}})
+
+            if not stream:
+                with upstream:
+                    data = json.loads(upstream.read())
+                msg = data["choices"][0]["message"]
+                output = []
+                if msg.get("content"):
+                    output.append({"type": "message", "id": msg_id, "status": "completed",
+                                   "role": "assistant",
+                                   "content": [{"type": "output_text", "text": msg["content"], "annotations": []}]})
+                for tc in msg.get("tool_calls") or []:
+                    fn = tc.get("function") or {}
+                    output.append({"type": "function_call", "id": "fc_" + os.urandom(6).hex(),
+                                   "call_id": tc.get("id", ""), "name": fn.get("name", ""),
+                                   "arguments": fn.get("arguments") or "{}", "status": "completed"})
+                log("DeepSeek OK (responses)")
+                return self.json(200, {"id": resp_id, "object": "response", "status": "completed",
+                                       "model": model, "output": output,
+                                       "usage": chat_usage_to_responses(data.get("usage"))})
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self._sse_emit({"type": "response.created",
+                            "response": {"id": resp_id, "object": "response", "status": "in_progress",
+                                         "model": model, "output": []}})
+
+            text_parts, tool_calls, usage = [], {}, None
+            client_gone = False
+            try:
+                with upstream:
+                    for d in self._sse_json_events(upstream):
+                        if d.get("usage"):
+                            usage = d["usage"]
+                        choices = d.get("choices") or []
+                        if not choices:
+                            continue
+                        delta = choices[0].get("delta") or {}
+                        content = delta.get("content")
+                        if content:
+                            if not text_parts and not self._sse_emit({
+                                    "type": "response.output_item.added", "output_index": 0,
+                                    "item": {"type": "message", "id": msg_id, "status": "in_progress",
+                                             "role": "assistant", "content": []}}):
+                                client_gone = True
+                                break
+                            text_parts.append(content)
+                            if not self._sse_emit({"type": "response.output_text.delta",
+                                                   "item_id": msg_id, "output_index": 0,
+                                                   "content_index": 0, "delta": content}):
+                                client_gone = True
+                                break
+                        for tc in delta.get("tool_calls") or []:
+                            slot = tool_calls.setdefault(tc.get("index", 0), {"id": "", "name": "", "args": ""})
+                            if tc.get("id"):
+                                slot["id"] = tc["id"]
+                            fn = tc.get("function") or {}
+                            slot["name"] += fn.get("name") or ""
+                            slot["args"] += fn.get("arguments") or ""
+            except Exception as e:
+                log(f"DeepSeek stream error: {e}")
+                self._sse_emit({"type": "response.failed",
+                                "response": {"id": resp_id, "object": "response", "status": "failed",
+                                             "error": {"code": "upstream_error", "message": str(e)}}})
+                return
+            if client_gone:
+                log("client disconnected mid-stream")
+                return
+
+            output = []
+            if text_parts:
+                item = {"type": "message", "id": msg_id, "status": "completed", "role": "assistant",
+                        "content": [{"type": "output_text", "text": "".join(text_parts), "annotations": []}]}
+                output.append(item)
+                self._sse_emit({"type": "response.output_item.done", "output_index": 0, "item": item})
+            for idx in sorted(tool_calls):
+                c = tool_calls[idx]
+                item = {"type": "function_call", "id": "fc_" + os.urandom(6).hex(),
+                        "call_id": c["id"] or "call_" + os.urandom(6).hex(),
+                        "name": c["name"], "arguments": c["args"] or "{}", "status": "completed"}
+                self._sse_emit({"type": "response.output_item.done", "output_index": len(output), "item": item})
+                output.append(item)
+            self._sse_emit({"type": "response.completed",
+                            "response": {"id": resp_id, "object": "response", "status": "completed",
+                                         "model": model, "output": output,
+                                         "usage": chat_usage_to_responses(usage)}})
+            log("DeepSeek OK (responses)")
 
         def json(self, status, data):
             try:

@@ -13,6 +13,14 @@ Codex CLI (--oss ollama)  ──▶  Proxy (porta 11434)  ──▶  api.deepsee
 
 Codex non supporta nativamente API esterne, ma accetta provider locali via `--oss --local-provider ollama`. Il proxy intercetta le chiamate all'API di Ollama e le traduce per DeepSeek.
 
+Il proxy espone tre superfici API sulla porta 11434, così funziona sia con le versioni vecchie che nuove di Codex CLI:
+
+| Endpoint | Chi lo usa |
+|----------|-----------|
+| `/api/chat`, `/api/generate`, `/api/tags`, `/api/show` | API nativa Ollama — Codex CLI vecchio (`--oss --local-provider ollama`) |
+| `/v1/responses` | **API Responses di OpenAI** — Codex CLI recente (default per il provider oss) |
+| `/v1/chat/completions`, `/v1/models` | API Chat Completions — provider configurati con `wire_api = "chat"` |
+
 ## Installazione
 
 ```bash
@@ -89,6 +97,40 @@ ADB (una tantum, richiede USB debugging):
 adb shell settings put global settings_enable_monitor_phantom_procs false
 adb shell "settings put global settings_enable_monitor_phantom_procs false"
 ```
+
+## Troubleshooting
+
+### `stream disconnected before completion: error sending request for url (http://localhost:11434/v1/responses)`
+
+Questo errore ha due cause tipiche:
+
+1. **Codex CLI aggiornato**: le versioni recenti di Codex non parlano più l'API
+   nativa di Ollama ma l'**API Responses di OpenAI** (`/v1/responses`). Le
+   versioni del proxy precedenti a questa rispondevano 404 su quell'endpoint.
+   Soluzione: aggiorna il bridge (`git pull`) e riavvia il proxy
+   (`./bin/stop-proxy && ./bin/start-proxy`) — ora `/v1/responses` è supportato,
+   inclusi tool call e streaming.
+2. **Proxy non in esecuzione**: se Android ha ucciso il proxy (phantom process
+   killer) la richiesta fallisce a livello di connessione. Verifica con
+   `curl -s http://127.0.0.1:11434/v1/models` — se non risponde, riavvia con
+   `./bin/start-proxy` e vedi la sezione *Stabilità su Android/Termux*.
+
+In alternativa puoi forzare Codex a usare la Chat Completions API definendo un
+provider esplicito in `~/.codex/config.toml`:
+
+```toml
+model = "deepseek-chat"
+model_provider = "deepseek-proxy"
+
+[model_providers.deepseek-proxy]
+name = "DeepSeek via proxy"
+base_url = "http://127.0.0.1:11434/v1"
+wire_api = "chat"
+```
+
+Nota: le versioni recenti di Codex supportano anche provider remoti diretti —
+puoi puntare `base_url = "https://api.deepseek.com/v1"` con
+`env_key = "DEEPSEEK_API_KEY"` e `wire_api = "chat"` senza passare dal proxy.
 
 ## Limitazioni note
 
