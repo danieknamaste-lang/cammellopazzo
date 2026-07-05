@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+#
+# codex-claude-bridge — ciclo automatico: Codex genera → Claude revisiona → Codex corregge.
+#
+# Uso:
+#   codex-claude-bridge "aggiungi la validazione dell'email nel form di login"
+#   codex-claude-bridge --fix "implementa la cache LRU"     # applica le correzioni in loop
+#   codex-claude-bridge --review-only                        # salta la generazione, rivedi e basta
+#
+# Opzioni:
+#   --fix             dopo la review, chiede a Codex di applicare le correzioni
+#                     e fa rirevisionare a Claude, fino a --max-cycles
+#   --max-cycles N    numero massimo di cicli review+fix (default 3)
+#   --review-only     non chiama Codex per generare: revisiona le modifiche presenti
+#
+# Variabili d'ambiente:
+#   CODEX_BIN         comando codex (default: codex)
+#   CODEX_EXEC_ARGS   argomenti extra per 'codex exec' (default: --full-auto)
+
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+CODEX_BIN="${CODEX_BIN:-codex}"
+CODEX_EXEC_ARGS="${CODEX_EXEC_ARGS:---full-auto}"
+
+FIX=0
+REVIEW_ONLY=0
+MAX_CYCLES=3
+TASK=""
+
+usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --fix) FIX=1 ;;
+    --review-only) REVIEW_ONLY=1 ;;
+    --max-cycles) shift; MAX_CYCLES="$1" ;;
+    -h|--help) usage; exit 0 ;;
+    *) TASK="${TASK:+$TASK }$1" ;;
+  esac
+  shift
+done
+
+if [ "$REVIEW_ONLY" -eq 0 ]; then
+  [ -n "$TASK" ] || { echo "Errore: descrivi il task, oppure usa --review-only." >&2; usage; exit 1; }
+  command -v "$CODEX_BIN" >/dev/null 2>&1 || {
+    echo "Errore: '$CODEX_BIN' non trovato. Installa Codex CLI: npm install -g @openai/codex" >&2
+    exit 1
+  }
+  echo "==> [1/2] Codex CLI genera il codice..." >&2
+  # shellcheck disable=SC2086
+  "$CODEX_BIN" exec $CODEX_EXEC_ARGS "$TASK"
+fi
+
+CYCLE=1
+while :; do
+  echo "==> [2/2] Claude Code revisiona (ciclo $CYCLE/$MAX_CYCLES)..." >&2
+
+  set +e
+  REVIEW="$("$HERE/claude-review" -o)"
+  STATUS=$?
+  set -e
+
+  echo "$REVIEW"
+
+  if [ "$STATUS" -eq 0 ]; then
+    echo "==> Review superata: VERDETTO OK. ✅" >&2
+    exit 0
+  fi
+
+  if [ "$FIX" -eq 0 ]; then
+    echo "==> La review segnala correzioni necessarie. Rilancia con --fix per farle applicare a Codex." >&2
+    exit 2
+  fi
+
+  if [ "$CYCLE" -ge "$MAX_CYCLES" ]; then
+    echo "==> Raggiunto il limite di $MAX_CYCLES cicli: servono correzioni manuali. ⚠️" >&2
+    exit 2
+  fi
+
+  echo "==> Codex applica le correzioni della review..." >&2
+  # shellcheck disable=SC2086
+  "$CODEX_BIN" exec $CODEX_EXEC_ARGS "Un code reviewer ha analizzato le tue ultime modifiche in questo repository e ha trovato dei problemi. Applica SOLO le correzioni indicate nella review qui sotto, senza cambiare altro:
+
+$REVIEW"
+
+  CYCLE=$((CYCLE + 1))
+done

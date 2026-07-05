@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Hook post-commit: fa revisionare automaticamente a Claude Code ogni commit.
+# È opt-in: si attiva solo se CLAUDE_AUTOREVIEW=1, così i commit normali restano veloci.
+#
+# Attivazione (dalla radice del repo):
+#   git config core.hooksPath hooks
+#   export CLAUDE_AUTOREVIEW=1
+
+[ "${CLAUDE_AUTOREVIEW:-0}" = "1" ] || exit 0
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+exec "$REPO_ROOT/bin/claude-review" --last 1 -o

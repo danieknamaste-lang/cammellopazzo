@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+#
+# claude-review — fa revisionare a Claude Code il codice prodotto con Codex CLI.
+#
+# Uso:
+#   claude-review                 # rivede le modifiche non committate (working tree)
+#   claude-review --staged        # rivede solo le modifiche in staging (git add)
+#   claude-review --last [N]      # rivede gli ultimi N commit (default 1)
+#   claude-review <range>         # rivede un range git, es. main..HEAD
+#   claude-review <file> [...]    # rivede file specifici (anche non tracciati)
+#
+# Opzioni:
+#   -o, --save        salva la review in $CLAUDE_REVIEW_DIR (default .claude-reviews/)
+#   -h, --help        mostra questo aiuto
+#
+# Variabili d'ambiente:
+#   CLAUDE_REVIEW_MODEL   modello da usare (es. claude-sonnet-5); vuoto = default
+#   CLAUDE_REVIEW_LANG    lingua della review (default: italiano)
+#   CLAUDE_REVIEW_DIR     cartella dove salvare le review (default: .claude-reviews)
+#   CLAUDE_BIN            comando claude (default: claude)
+
+set -euo pipefail
+
+CLAUDE_BIN="${CLAUDE_BIN:-claude}"
+LANG_REVIEW="${CLAUDE_REVIEW_LANG:-italiano}"
+OUT_DIR="${CLAUDE_REVIEW_DIR:-.claude-reviews}"
+MODEL="${CLAUDE_REVIEW_MODEL:-}"
+
+SAVE=0
+ARGS=()
+
+usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o|--save) SAVE=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) ARGS+=("$1") ;;
+  esac
+  shift
+done
+
+command -v "$CLAUDE_BIN" >/dev/null 2>&1 || {
+  echo "Errore: '$CLAUDE_BIN' non trovato. Installa Claude Code: npm install -g @anthropic-ai/claude-code" >&2
+  exit 1
+}
+
+TMP="$(mktemp)"
+trap 'rm -f "$TMP"' EXIT
+
+TITLE=""
+
+if [ ${#ARGS[@]} -eq 0 ]; then
+  TITLE="modifiche non committate"
+  git diff HEAD -- >"$TMP" 2>/dev/null || git diff >"$TMP"
+  # includi anche i file nuovi non ancora tracciati
+  git ls-files --others --exclude-standard | while IFS= read -r f; do
+    printf '\n--- NUOVO FILE (non tracciato): %s ---\n' "$f" >>"$TMP"
+    cat "$f" >>"$TMP"
+  done
+elif [ "${ARGS[0]}" = "--staged" ]; then
+  TITLE="modifiche in staging"
+  git diff --cached >"$TMP"
+elif [ "${ARGS[0]}" = "--last" ]; then
+  N="${ARGS[1]:-1}"
+  TITLE="ultimi $N commit"
+  git log --oneline -n "$N" >"$TMP"
+  printf '\n' >>"$TMP"
+  git diff "HEAD~$N..HEAD" >>"$TMP" 2>/dev/null || git show HEAD >>"$TMP"
+elif git rev-parse --quiet --verify "${ARGS[0]%%..*}" >/dev/null 2>&1 && [[ "${ARGS[0]}" == *".."* ]]; then
+  TITLE="range ${ARGS[0]}"
+  git diff "${ARGS[0]}" >"$TMP"
+else
+  TITLE="file: ${ARGS[*]}"
+  for f in "${ARGS[@]}"; do
+    printf '\n--- FILE: %s ---\n' "$f" >>"$TMP"
+    cat "$f" >>"$TMP"
+  done
+fi
+
+if [ ! -s "$TMP" ]; then
+  echo "Niente da rivedere ($TITLE)." >&2
+  exit 0
+fi
+
+PROMPT="Sei un code reviewer senior. Il codice qui sotto (via stdin) è stato generato da un altro strumento AI (Codex CLI) e va verificato con occhio critico.
+
+Fai una code review rigorosa di: $TITLE.
+Puoi leggere gli altri file del repository per capire il contesto.
+
+Organizza la review così:
+1. RIEPILOGO — cosa fa la modifica, in 2-3 frasi.
+2. PROBLEMI — bug, errori logici, casi limite non gestiti, problemi di sicurezza. Per ognuno indica file e riga.
+3. MIGLIORAMENTI — suggerimenti non bloccanti (stile, semplificazioni, duplicazioni).
+4. VERDETTO — chiudi con una riga esatta: 'VERDETTO: OK' se il codice è accettabile, oppure 'VERDETTO: CORREZIONI NECESSARIE' se ci sono problemi da sistemare.
+
+Rispondi in $LANG_REVIEW. Sii concreto: niente osservazioni generiche."
+
+CLAUDE_ARGS=(-p "$PROMPT")
+[ -n "$MODEL" ] && CLAUDE_ARGS+=(--model "$MODEL")
+
+echo ">> Claude Code sta revisionando: $TITLE ..." >&2
+REVIEW="$("$CLAUDE_BIN" "${CLAUDE_ARGS[@]}" <"$TMP")"
+
+echo "$REVIEW"
+
+if [ "$SAVE" -eq 1 ]; then
+  mkdir -p "$OUT_DIR"
+  OUT_FILE="$OUT_DIR/review-$(date +%Y%m%d-%H%M%S).md"
+  printf '# Review: %s\n\n%s\n' "$TITLE" "$REVIEW" >"$OUT_FILE"
+  echo ">> Review salvata in $OUT_FILE" >&2
+fi
+
+# exit code utile per gli script: 0 = OK, 2 = correzioni necessarie
+if printf '%s' "$REVIEW" | grep -q 'VERDETTO: CORREZIONI'; then
+  exit 2
+fi
