@@ -1,0 +1,3 @@
+# Dipendenze per separa_voce.py
+# Nota: richiede anche ffmpeg installato a livello di sistema.
+demucs>=4.0.0
