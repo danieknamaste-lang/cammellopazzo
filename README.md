@@ -24,7 +24,12 @@ Lo script usa [Demucs](https://github.com/facebookresearch/demucs) (Meta AI), un
 
 ### Installazione
 
+Consigliato: usa un ambiente virtuale. Su Debian/Ubuntu è praticamente obbligatorio, perché il setuptools di sistema ha un bug (`AttributeError: install_layout`) che fa fallire la compilazione di Demucs.
+
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate        # su Windows: .venv\Scripts\activate
+pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 ```
 
