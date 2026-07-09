@@ -19,10 +19,14 @@ BENVENUTO = """\
 Workspace: {workspace}
 
 Esempi:
+  - Trascrivi tutto quello che dicono in questo video: <url>
+  - Trascrivi lezione.mp4 (è in inglese) e dammi anche i sottotitoli
   - Scarica questo video: https://www.youtube.com/watch?v=...
   - Estrai la musica da video.mp4 e togli la voce
-  - Trascrivi il testo di questa canzone: <url>
   - Trasforma in MIDI la melodia di brano.mp3
+
+Suggerimento: per la sola trascrizione senza agente c'è anche
+  python -m agent.trascrivi <url-o-file> [--lingua en] [--modello large-v3]
 
 Scrivi 'esci' per uscire.
 """

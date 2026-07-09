@@ -1,5 +1,8 @@
-# Dipendenze opzionali "pesanti" (scaricano PyTorch/TensorFlow)
+# Dipendenze opzionali
 -r requirements.txt
+
+# Backend di trascrizione via API OpenAI (whisper-1 / gpt-4o-transcribe)
+openai>=1.60.0
 
 # Separazione delle sorgenti audio (voce / batteria / basso / altro)
 demucs>=4.0.1
