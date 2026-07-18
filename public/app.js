@@ -72,6 +72,7 @@
       return;
     }
     const labels = {
+      kimi: `Kimi · ${status.model}` + (status.search ? ' 🔍' : ''),
       deepseek: `DeepSeek · ${status.model}`,
       anthropic: `Claude API · ${status.model}`,
       ollama: `Ollama · ${status.model}`,
@@ -297,6 +298,11 @@
       bubble.innerHTML = renderMarkdown(fullText);
       scrollToBottom();
     };
+    // Stato temporaneo (es. "Sto cercando sul web…"): mostrato ma non salvato
+    const onStatus = (text) => {
+      bubble.innerHTML = renderMarkdown(fullText + (fullText ? '\n\n' : '') + '*' + text + '*');
+      scrollToBottom();
+    };
 
     try {
       if (isDirectMode()) {
@@ -306,7 +312,7 @@
         }
         await streamDeepSeekDirect(conv.messages, onDelta);
       } else {
-        await streamViaServer(conv.messages, onDelta);
+        await streamViaServer(conv.messages, onDelta, onStatus);
       }
     } catch (err) {
       fullText = fullText || `⚠️ Si è verificato un errore: ${err.message}`;
@@ -320,8 +326,8 @@
     inputEl.focus();
   }
 
-  // Modalità server: POST /api/chat, eventi SSE {type:'delta'|'error'|'done'}
-  async function streamViaServer(messages, onDelta) {
+  // Modalità server: POST /api/chat, eventi SSE {type:'delta'|'status'|'error'|'done'}
+  async function streamViaServer(messages, onDelta, onStatus) {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -344,6 +350,7 @@
         if (!line) continue;
         const event = JSON.parse(line);
         if (event.type === 'delta') onDelta(event.text);
+        else if (event.type === 'status' && onStatus) onStatus(event.text);
         else if (event.type === 'error') throw new Error(event.message);
       }
     }
