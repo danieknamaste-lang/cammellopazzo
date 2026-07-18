@@ -1,14 +1,18 @@
 /**
  * EllenChat locale — server Node.js
  *
- * Backend a quattro livelli, scelto automaticamente all'avvio:
- *   1. DeepSeek API → se è impostata DEEPSEEK_API_KEY
- *   2. Claude API   → se è impostata ANTHROPIC_API_KEY
- *   3. Ollama       → se un server Ollama risponde su OLLAMA_URL (default http://localhost:11434)
- *   4. Demo         → nessuna configurazione: risposte simulate, utile per provare la UI
+ * Backend a cinque livelli, scelto automaticamente all'avvio:
+ *   1. Kimi (agente) → se è impostata KIMI_API_KEY: agente con deep search web
+ *                      e memoria locale persistente (vedi agent.js e memory.js)
+ *   2. DeepSeek API  → se è impostata DEEPSEEK_API_KEY
+ *   3. Claude API    → se è impostata ANTHROPIC_API_KEY
+ *   4. Ollama        → se un server Ollama risponde su OLLAMA_URL (default http://localhost:11434)
+ *   5. Demo          → nessuna configurazione: risposte simulate, utile per provare la UI
  *
  * Variabili d'ambiente:
  *   PORT              porta del server (default 3000)
+ *   KIMI_API_KEY      chiave API Kimi/Moonshot (opzionale; attiva l'agente)
+ *   KIMI_MODEL        modello Kimi (default kimi-latest)
  *   DEEPSEEK_API_KEY  chiave API DeepSeek (opzionale)
  *   DEEPSEEK_MODEL    modello DeepSeek (default deepseek-chat)
  *   ANTHROPIC_API_KEY chiave API Anthropic (opzionale)
@@ -21,6 +25,8 @@
 
 const express = require('express');
 const path = require('path');
+const agent = require('./agent');
+const memory = require('./memory');
 
 const PORT = process.env.PORT || 3000;
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
@@ -52,6 +58,10 @@ app.use(express.static(path.join(__dirname, 'public')));
 let backend = { type: 'demo', model: 'demo' };
 
 async function detectBackend() {
+  if (agent.apiKey()) {
+    backend = { type: 'kimi', model: agent.model };
+    return;
+  }
   if (process.env.DEEPSEEK_API_KEY) {
     backend = { type: 'deepseek', model: DEEPSEEK_MODEL };
     return;
@@ -105,7 +115,9 @@ app.post('/api/chat', async (req, res) => {
   const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
 
   try {
-    if (backend.type === 'deepseek') {
+    if (backend.type === 'kimi') {
+      await agent.run(messages, send, DEFAULT_SYSTEM_PROMPT);
+    } else if (backend.type === 'deepseek') {
       await streamDeepSeek(messages, send);
     } else if (backend.type === 'anthropic') {
       await streamAnthropic(messages, send);
@@ -119,6 +131,20 @@ app.post('/api/chat', async (req, res) => {
     send({ type: 'error', message: String(err.message || err) });
   }
   res.end();
+});
+
+// Memoria locale dell'agente: consultazione e gestione dalla UI
+app.get('/api/memory', (req, res) => {
+  res.json({ entries: memory.list() });
+});
+
+app.delete('/api/memory/:id', (req, res) => {
+  res.json({ removed: memory.remove(req.params.id) });
+});
+
+app.delete('/api/memory', (req, res) => {
+  memory.clear();
+  res.json({ removed: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -231,12 +257,14 @@ async function streamDemo(messages, send) {
     `Ciao! Sono **${ASSISTANT_NAME}** in *modalità demo* — al momento non è configurato ` +
     `nessun modello AI, quindi non posso rispondere davvero alla tua domanda:\n\n` +
     `> ${String(last.content).slice(0, 200)}\n\n` +
-    `Per attivare le risposte vere hai tre opzioni:\n\n` +
-    `1. **DeepSeek API** — avvia il server con la tua chiave:\n` +
+    `Per attivare le risposte vere hai quattro opzioni:\n\n` +
+    `1. **Kimi (agente con deep search e memoria)** — avvia il server con la tua chiave:\n` +
+    `   \`\`\`bash\n   KIMI_API_KEY=sk-... npm start\n   \`\`\`\n` +
+    `2. **DeepSeek API** — avvia il server con la tua chiave:\n` +
     `   \`\`\`bash\n   DEEPSEEK_API_KEY=sk-... npm start\n   \`\`\`\n` +
-    `2. **Claude API** — avvia il server con la tua chiave:\n` +
+    `3. **Claude API** — avvia il server con la tua chiave:\n` +
     `   \`\`\`bash\n   ANTHROPIC_API_KEY=sk-ant-... npm start\n   \`\`\`\n` +
-    `3. **Ollama** (gratuito, 100% locale) — installa [Ollama](https://ollama.com), poi:\n` +
+    `4. **Ollama** (gratuito, 100% locale) — installa [Ollama](https://ollama.com), poi:\n` +
     `   \`\`\`bash\n   ollama pull llama3.2\n   npm start\n   \`\`\`\n\n` +
     `L'interfaccia che stai usando (streaming, cronologia, conversazioni multiple) ` +
     `funziona già esattamente come farà con un modello vero. 🚀`;
@@ -255,7 +283,10 @@ detectBackend().then(() => {
     console.log(`✅ EllenChat locale avviata su http://localhost:${PORT}`);
     console.log(`   Backend: ${backend.type} (modello: ${backend.model})`);
     if (backend.type === 'demo') {
-      console.log('   Suggerimento: imposta DEEPSEEK_API_KEY (o ANTHROPIC_API_KEY, o avvia Ollama) per risposte vere.');
+      console.log('   Suggerimento: imposta KIMI_API_KEY (o DEEPSEEK_API_KEY, ANTHROPIC_API_KEY, o avvia Ollama) per risposte vere.');
+    }
+    if (backend.type === 'kimi') {
+      console.log(`   Agente attivo: deep search web + memoria locale (${memory.list().length} ricordi)`);
     }
   });
 });

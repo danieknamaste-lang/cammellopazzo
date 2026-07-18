@@ -72,6 +72,7 @@
       return;
     }
     const labels = {
+      kimi: `Kimi 🔎🧠 · ${status.model}`,
       deepseek: `DeepSeek · ${status.model}`,
       anthropic: `Claude API · ${status.model}`,
       ollama: `Ollama · ${status.model}`,
@@ -88,6 +89,7 @@
     })
     .then((s) => {
       serverAvailable = true;
+      $('btnMemory').style.display = s.backend === 'kimi' ? '' : 'none';
       assistantName = s.assistantName || 'Ellen';
       const letter = assistantName[0].toUpperCase();
       $('assistantNameEl').textContent = assistantName;
@@ -143,6 +145,64 @@
       fetch('/api/status').then((r) => r.json()).then(updateBadge).catch(() => {});
     }
     $('settingsOverlay').hidden = true;
+  });
+
+  // ---------- Memoria dell'agente ----------
+  async function openMemory() {
+    $('memoryOverlay').hidden = false;
+    const listEl = $('memoryList');
+    listEl.innerHTML = '<p class="memory-empty">Caricamento…</p>';
+    try {
+      const { entries } = await fetch('/api/memory').then((r) => r.json());
+      renderMemoryList(entries);
+    } catch {
+      listEl.innerHTML = '<p class="memory-empty">Impossibile caricare la memoria.</p>';
+    }
+  }
+
+  function renderMemoryList(entries) {
+    const listEl = $('memoryList');
+    listEl.innerHTML = '';
+    if (!entries.length) {
+      listEl.innerHTML =
+        '<p class="memory-empty">Nessun ricordo salvato. Durante la chat l\'agente memorizza ' +
+        'da solo le informazioni importanti, oppure chiedigli: <em>"ricordati che…"</em></p>';
+      return;
+    }
+    for (const entry of entries) {
+      const item = document.createElement('div');
+      item.className = 'memory-item';
+
+      const text = document.createElement('span');
+      text.className = 'text';
+      text.textContent = entry.text;
+      item.appendChild(text);
+
+      const del = document.createElement('button');
+      del.className = 'btn-del';
+      del.textContent = '✕';
+      del.title = 'Dimentica questo ricordo';
+      del.addEventListener('click', async () => {
+        await fetch(`/api/memory/${entry.id}`, { method: 'DELETE' });
+        item.remove();
+        if (!$('memoryList').children.length) renderMemoryList([]);
+      });
+      item.appendChild(del);
+      listEl.appendChild(item);
+    }
+  }
+
+  $('btnMemory').addEventListener('click', openMemory);
+  $('btnMemoryClose').addEventListener('click', () => {
+    $('memoryOverlay').hidden = true;
+  });
+  $('memoryOverlay').addEventListener('click', (e) => {
+    if (e.target === $('memoryOverlay')) $('memoryOverlay').hidden = true;
+  });
+  $('btnMemoryClear').addEventListener('click', async () => {
+    if (!confirm('Cancellare tutta la memoria dell\'agente?')) return;
+    await fetch('/api/memory', { method: 'DELETE' });
+    renderMemoryList([]);
   });
 
   $('suggestions').addEventListener('click', (e) => {
@@ -292,10 +352,21 @@
     scrollToBottom();
 
     let fullText = '';
+    let toolStatus = ''; // es. "🔎 Ricerca sul web…" mentre l'agente usa uno strumento
+    const renderBubble = () => {
+      bubble.innerHTML =
+        renderMarkdown(fullText) +
+        (toolStatus ? `<div class="tool-status">${escapeHtml(toolStatus)}</div>` : '');
+      scrollToBottom();
+    };
     const onDelta = (text) => {
       fullText += text;
-      bubble.innerHTML = renderMarkdown(fullText);
-      scrollToBottom();
+      toolStatus = '';
+      renderBubble();
+    };
+    const onTool = (label) => {
+      toolStatus = label;
+      renderBubble();
     };
 
     try {
@@ -306,12 +377,13 @@
         }
         await streamDeepSeekDirect(conv.messages, onDelta);
       } else {
-        await streamViaServer(conv.messages, onDelta);
+        await streamViaServer(conv.messages, onDelta, onTool);
       }
     } catch (err) {
       fullText = fullText || `⚠️ Si è verificato un errore: ${err.message}`;
-      bubble.innerHTML = renderMarkdown(fullText);
     }
+    toolStatus = '';
+    renderBubble();
 
     conv.messages.push({ role: 'assistant', content: fullText });
     saveConversations();
@@ -320,8 +392,8 @@
     inputEl.focus();
   }
 
-  // Modalità server: POST /api/chat, eventi SSE {type:'delta'|'error'|'done'}
-  async function streamViaServer(messages, onDelta) {
+  // Modalità server: POST /api/chat, eventi SSE {type:'delta'|'tool'|'error'|'done'}
+  async function streamViaServer(messages, onDelta, onTool) {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -344,6 +416,7 @@
         if (!line) continue;
         const event = JSON.parse(line);
         if (event.type === 'delta') onDelta(event.text);
+        else if (event.type === 'tool' && onTool) onTool(event.label || event.name);
         else if (event.type === 'error') throw new Error(event.message);
       }
     }

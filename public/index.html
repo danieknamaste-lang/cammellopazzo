@@ -22,6 +22,7 @@
           <span class="dot"></span>
           <span id="backendLabel">connessione…</span>
         </div>
+        <button class="btn-settings" id="btnMemory" aria-label="Memoria dell'agente" style="display:none">🧠 Memoria</button>
         <button class="btn-settings" id="btnSettings" aria-label="Impostazioni">⚙️ Impostazioni</button>
       </div>
     </aside>
@@ -96,6 +97,19 @@
       <div class="modal-actions">
         <button class="btn-secondary" id="btnSettingsClose">Annulla</button>
         <button class="btn-primary" id="btnSettingsSave">Salva</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal memoria dell'agente -->
+  <div class="modal-overlay" id="memoryOverlay" hidden>
+    <div class="modal" role="dialog" aria-labelledby="memoryTitle">
+      <h2 id="memoryTitle">🧠 Memoria dell'agente</h2>
+      <p class="modal-sub">Ricordi salvati in locale sul server (data/memory.json). L'agente li usa in ogni conversazione.</p>
+      <div class="memory-list" id="memoryList"></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btnMemoryClear">Cancella tutto</button>
+        <button class="btn-primary" id="btnMemoryClose">Chiudi</button>
       </div>
     </div>
   </div>
