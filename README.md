@@ -33,6 +33,13 @@ Poi apri **http://localhost:3000** nel browser. Senza configurazione parte in mo
 KIMI_API_KEY=sk-... npm start
 ```
 
+In alternativa crea un file `.env` nella cartella del progetto (è gitignorato, la chiave non finisce nel repository):
+
+```bash
+echo "KIMI_API_KEY=sk-..." > .env
+npm start
+```
+
 La chiave si ottiene su [platform.moonshot.ai](https://platform.moonshot.ai). Con Kimi attivo la chat diventa un **agente**:
 
 - 🔎 **Deep search**: per le domande su fatti recenti o complesse l'agente cerca sul web (ricerca nativa Moonshot, eseguita lato server), legge i risultati, raffina la query e cerca di nuovo — fino a `KIMI_MAX_STEPS` passaggi — citando le fonti.

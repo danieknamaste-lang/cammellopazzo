@@ -23,6 +23,15 @@
  *   SYSTEM_PROMPT     prompt di sistema personalizzato
  */
 
+// Carica le variabili da .env se presente (file gitignorato, nessuna dipendenza):
+// comodo per la chiave API senza doverla passare a ogni avvio.
+try {
+  for (const line of require('fs').readFileSync(__dirname + '/.env', 'utf8').split('\n')) {
+    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
+    if (m && !(m[1] in process.env)) process.env[m[1]] = m[2].replace(/^(["'])(.*)\1$/, '$2');
+  }
+} catch {}
+
 const express = require('express');
 const path = require('path');
 const agent = require('./agent');
