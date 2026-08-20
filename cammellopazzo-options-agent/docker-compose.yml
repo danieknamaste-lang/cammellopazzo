@@ -1,0 +1,39 @@
+# App Umbrel "Agente Opzioni".
+#
+# Configurazione: crea/modifica il file .env nella cartella dei dati dell'app
+#   ~/umbrel/app-data/cammellopazzo-options-agent/.env
+# e riavvia l'app dalla dashboard. Esempio:
+#   MULTIAGENT_URL=http://10.0.0.12:8000
+#   MULTIAGENT_MODE=auto
+#   APP_TOKEN=una-password-lunga
+# In alternativa si imposta tutto dall'ingranaggio dentro l'app.
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: cammellopazzo-options-agent_web_1
+      APP_PORT: 3100
+
+  web:
+    image: ghcr.io/danieknamaste-lang/cammellopazzo-options-agent:latest
+    restart: on-failure
+    stop_grace_period: 1m
+    environment:
+      PORT: 3100
+      DATA_DIR: /data
+      MULTIAGENT_URL: ${MULTIAGENT_URL:-}
+      MULTIAGENT_MODE: ${MULTIAGENT_MODE:-auto}
+      MULTIAGENT_PATH: ${MULTIAGENT_PATH:-}
+      MULTIAGENT_MODEL: ${MULTIAGENT_MODEL:-}
+      MULTIAGENT_TOKEN: ${MULTIAGENT_TOKEN:-}
+      MULTIAGENT_TIMEOUT_MS: ${MULTIAGENT_TIMEOUT_MS:-180000}
+      PLANNER: ${PLANNER:-auto}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OLLAMA_URL: ${OLLAMA_URL:-http://10.21.21.1:11434}
+      APP_TOKEN: ${APP_TOKEN:-}
+      AGENT_MAX_STEPS: ${AGENT_MAX_STEPS:-2}
+    volumes:
+      - ${APP_DATA_DIR}/data:/data

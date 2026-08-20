@@ -1,0 +1,15 @@
+{
+  "name": "cammellopazzo-options-agent",
+  "version": "1.0.0",
+  "description": "Interfaccia e agente per interrogare il sistema multiagentico di opzioni (app Umbrel)",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "dev": "MULTIAGENT_MODE=mock node server.js",
+    "test": "node test/smoke.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

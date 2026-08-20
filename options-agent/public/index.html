@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b1120" />
+    <title>Agente Opzioni · Cammellopazzo</title>
+    <link rel="icon" href="icon.svg" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">◆</span>
+        <div>
+          <h1>Agente Opzioni</h1>
+          <p id="brand-sub">sistema multiagentico · mini</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button id="status-pill" class="pill" type="button" title="Stato del collegamento">
+          <span class="dot" id="status-dot"></span><span id="status-text">controllo…</span>
+        </button>
+        <button id="open-settings" class="icon-btn" type="button" aria-label="Impostazioni">⚙</button>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="ask" role="tab">Chiedi</button>
+      <button class="tab" data-tab="builder" role="tab">Builder</button>
+      <button class="tab" data-tab="history" role="tab">Storico</button>
+    </nav>
+
+    <main>
+      <!-- ---------------------------------------------------------- Chiedi -->
+      <section class="panel active" id="panel-ask">
+        <div class="card">
+          <label class="field-label" for="ask-input">Cosa chiedi al sistema</label>
+          <textarea
+            id="ask-input"
+            rows="4"
+            placeholder="Es. Analizza un iron condor su NVDA a 30 giorni: come si comporta se la volatilità scende del 10%? Non voglio rischiare più di 500 €."
+          ></textarea>
+          <div class="chips" id="examples"></div>
+          <div class="row">
+            <label class="switch">
+              <input type="checkbox" id="refine-toggle" />
+              <span>Approfondisci (2 passaggi)</span>
+            </label>
+            <div class="grow"></div>
+            <button id="plan-btn" class="btn ghost" type="button">Pianifica</button>
+            <button id="send-btn" class="btn primary" type="button">Invia</button>
+          </div>
+        </div>
+
+        <div class="card query-card hidden" id="query-card">
+          <div class="card-head">
+            <div>
+              <span class="badge" id="query-source">query</span>
+              <strong id="query-summary"></strong>
+            </div>
+            <button class="link" id="toggle-json" type="button">JSON</button>
+          </div>
+          <p class="note hidden" id="query-note"></p>
+          <pre class="json hidden" id="query-json"></pre>
+          <div class="row">
+            <button class="btn ghost small" id="edit-in-builder" type="button">Apri nel builder</button>
+            <button class="btn ghost small" id="show-prompt" type="button">Prompt inviato</button>
+          </div>
+          <pre class="json hidden" id="query-prompt"></pre>
+        </div>
+
+        <div class="card output-card hidden" id="output-card">
+          <div class="card-head">
+            <div class="agent-track" id="agent-track"></div>
+            <span class="meta" id="output-meta"></span>
+          </div>
+          <div class="answer" id="answer"></div>
+          <div class="row">
+            <button class="btn ghost small" id="stop-btn" type="button">Interrompi</button>
+            <button class="btn ghost small" id="copy-btn" type="button">Copia</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- --------------------------------------------------------- Builder -->
+      <section class="panel" id="panel-builder">
+        <div class="card">
+          <div class="grid">
+            <div class="field">
+              <label class="field-label" for="f-objective">Obiettivo</label>
+              <select id="f-objective"></select>
+            </div>
+            <div class="field">
+              <label class="field-label" for="f-strategy">Strategia</label>
+              <select id="f-strategy"></select>
+            </div>
+            <div class="field">
+              <label class="field-label" for="f-underlyings">Sottostanti</label>
+              <input id="f-underlyings" type="text" placeholder="NVDA, SPY" />
+            </div>
+            <div class="field">
+              <label class="field-label" for="f-dte">Giorni a scadenza</label>
+              <input id="f-dte" type="number" min="0" placeholder="30" />
+            </div>
+            <div class="field">
+              <label class="field-label" for="f-expiry">Scadenza precisa</label>
+              <input id="f-expiry" type="date" />
+            </div>
+            <div class="field">
+              <label class="field-label" for="f-risk">Profilo di rischio</label>
+              <select id="f-risk">
+                <option value="conservativo">conservativo</option>
+                <option value="moderato" selected>moderato</option>
+                <option value="aggressivo">aggressivo</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><strong>Gambe</strong><button class="link" id="add-leg" type="button">+ gamba</button></div>
+          <div id="legs"></div>
+          <p class="hint">Lascia vuoto lo strike per farlo scegliere al sistema (puoi indicare il delta).</p>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><strong>Scenari</strong><button class="link" id="add-scenario" type="button">+ scenario</button></div>
+          <div id="scenarios"></div>
+        </div>
+
+        <div class="card">
+          <strong>Metriche</strong>
+          <div class="chips selectable" id="metrics"></div>
+          <strong>Agenti da coinvolgere</strong>
+          <div class="chips selectable" id="agents"></div>
+        </div>
+
+        <div class="card">
+          <strong>Vincoli</strong>
+          <div class="grid">
+            <div class="field">
+              <label class="field-label" for="c-max-risk">Perdita massima</label>
+              <input id="c-max-risk" type="number" placeholder="500" />
+            </div>
+            <div class="field">
+              <label class="field-label" for="c-currency">Valuta</label>
+              <select id="c-currency">
+                <option value="EUR">EUR</option>
+                <option value="USD">USD</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="field-label" for="c-min-credit">Credito minimo</label>
+              <input id="c-min-credit" type="number" step="0.05" placeholder="1.20" />
+            </div>
+            <div class="field">
+              <label class="field-label" for="c-min-pop">Prob. profitto min (%)</label>
+              <input id="c-min-pop" type="number" min="0" max="100" placeholder="70" />
+            </div>
+            <div class="field">
+              <label class="field-label" for="c-target-delta">Delta obiettivo</label>
+              <input id="c-target-delta" type="number" step="0.01" placeholder="0.16" />
+            </div>
+            <div class="field">
+              <label class="field-label" for="c-oi">Open interest minimo</label>
+              <input id="c-oi" type="number" placeholder="500" />
+            </div>
+          </div>
+          <div class="chips selectable" id="flags">
+            <button class="chip" data-flag="defined_risk" type="button">rischio definito</button>
+            <button class="chip" data-flag="delta_neutral" type="button">delta neutrale</button>
+            <button class="chip" data-flag="avoid_earnings" type="button">evita earnings</button>
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-notes">Note per gli agenti</label>
+            <textarea id="f-notes" rows="2" placeholder="Posizione già aperta da 10 giorni, in gain del 30%…"></textarea>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><strong>Query</strong><button class="link" id="builder-copy" type="button">Copia JSON</button></div>
+          <pre class="json" id="builder-json"></pre>
+          <div class="row">
+            <button class="btn ghost small" id="builder-preset" type="button">Salva preset</button>
+            <div class="grow"></div>
+            <button class="btn primary" id="builder-send" type="button">Invia al sistema</button>
+          </div>
+        </div>
+
+        <div class="card" id="presets-card">
+          <strong>Preset salvati</strong>
+          <div id="presets" class="list"></div>
+        </div>
+      </section>
+
+      <!-- --------------------------------------------------------- Storico -->
+      <section class="panel" id="panel-history">
+        <div class="card">
+          <div class="card-head">
+            <strong>Storico query</strong>
+            <button class="link" id="refresh-history" type="button">aggiorna</button>
+          </div>
+          <div id="history" class="list"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ------------------------------------------------------ Impostazioni -->
+    <dialog id="settings">
+      <form method="dialog" id="settings-form">
+        <h2>Impostazioni</h2>
+        <p class="hint">Indirizzo del sistema multiagentico che gira sul mini. Salvate sul server: valgono anche dal telefono.</p>
+        <label class="field-label" for="s-url">Endpoint</label>
+        <input id="s-url" type="url" placeholder="http://10.0.0.12:8000" />
+        <label class="field-label" for="s-mode">Interfaccia</label>
+        <select id="s-mode">
+          <option value="auto">auto (rileva)</option>
+          <option value="openai">compatibile OpenAI</option>
+          <option value="json">POST JSON</option>
+          <option value="sse">SSE</option>
+          <option value="ollama">Ollama</option>
+          <option value="mock">simulazione</option>
+        </select>
+        <label class="field-label" for="s-path">Percorso (opzionale)</label>
+        <input id="s-path" type="text" placeholder="/query" />
+        <label class="field-label" for="s-model">Modello / agente (opzionale)</label>
+        <input id="s-model" type="text" placeholder="options-crew" />
+        <label class="field-label" for="s-token">Token del sistema remoto</label>
+        <input id="s-token" type="password" placeholder="lascia vuoto per non cambiarlo" />
+        <label class="field-label" for="s-apptoken">Token di accesso a questa app</label>
+        <input id="s-apptoken" type="password" placeholder="solo se APP_TOKEN è impostato" />
+        <p class="note" id="settings-status"></p>
+        <div class="row">
+          <button class="btn ghost" value="cancel" type="submit">Chiudi</button>
+          <div class="grow"></div>
+          <button class="btn ghost" id="test-conn" type="button">Prova collegamento</button>
+          <button class="btn primary" id="save-settings" type="button">Salva</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>

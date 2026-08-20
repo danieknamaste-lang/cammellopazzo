@@ -1,0 +1,43 @@
+manifestVersion: 1
+id: cammellopazzo-options-agent
+category: finance
+name: Agente Opzioni
+version: "1.0.0"
+tagline: Interfaccia e agente per il sistema multiagentico di opzioni
+description: >-
+  Interfaccia web (ottima da telefono) e agente che parlano con il sistema
+  multiagentico di opzioni che gira sul tuo mini.
+
+
+  Scrivi la domanda in italiano — "analizza un iron condor su NVDA a 30 giorni,
+  che succede se la volatilità scende del 10%?" — e l'agente la trasforma in una
+  query strutturata (sottostanti, strategia, gambe, scenari, metriche, vincoli,
+  agenti da coinvolgere), la invia al sistema e ti riporta la risposta in
+  streaming, separando il contributo di ogni agente.
+
+
+  Il builder permette di comporre la query campo per campo, con anteprima JSON
+  del payload inviato. Storico e preset sono salvati sul server, quindi si
+  ritrovano identici dal telefono e dal portatile.
+
+
+  Il connettore riconosce da solo l'interfaccia del sistema remoto: API
+  compatibile OpenAI, endpoint JSON in stile FastAPI/LangServe, stream SSE o
+  Ollama. Senza endpoint configurato parte in modalità simulazione, così puoi
+  provare la UI subito dopo l'installazione.
+releaseNotes: >-
+  Prima versione: pianificatore in linguaggio naturale, builder di query,
+  streaming multiagente, storico e preset condivisi, rilevamento automatico
+  dell'endpoint.
+developer: danieknamaste
+website: https://github.com/danieknamaste-lang/cammellopazzo
+dependencies: []
+repo: https://github.com/danieknamaste-lang/cammellopazzo
+support: https://github.com/danieknamaste-lang/cammellopazzo/issues
+port: 3100
+gallery: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
+submitter: danieknamaste
+submission: https://github.com/danieknamaste-lang/cammellopazzo

@@ -1,0 +1,32 @@
+# Avvio manuale (Umbrel via SSH, mini, qualunque host con Docker):
+#   MULTIAGENT_URL=http://10.0.0.12:8000 docker compose up -d
+services:
+  options-agent:
+    build: .
+    image: ghcr.io/danieknamaste-lang/cammellopazzo-options-agent:latest
+    container_name: options-agent
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3100}:3100"
+    environment:
+      # Sistema multiagentico di opzioni che gira sul mini
+      MULTIAGENT_URL: ${MULTIAGENT_URL:-}
+      MULTIAGENT_MODE: ${MULTIAGENT_MODE:-auto}
+      MULTIAGENT_PATH: ${MULTIAGENT_PATH:-}
+      MULTIAGENT_MODEL: ${MULTIAGENT_MODEL:-}
+      MULTIAGENT_TOKEN: ${MULTIAGENT_TOKEN:-}
+      # Pianificatore linguaggio naturale → query (opzionale)
+      PLANNER: ${PLANNER:-auto}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      # Protezione dell'interfaccia (consigliata se esci dalla LAN)
+      APP_TOKEN: ${APP_TOKEN:-}
+      DATA_DIR: /data
+    volumes:
+      - options-agent-data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  options-agent-data:
