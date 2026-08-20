@@ -1,3 +1,14 @@
+# Cammellopazzo
+
+Due app che girano in casa:
+
+| App | Cartella | Cosa fa |
+| --- | -------- | ------- |
+| **EllenChat** | `.` (radice) | chat AI locale con streaming, cronologia e persona configurabile |
+| **[Agente Opzioni](options-agent/README.md)** | `options-agent/` | interfaccia + agente per il sistema multiagentico di opzioni che gira sul mini, installabile su **Umbrel** |
+
+---
+
 # EllenChat — chat AI locale 💬
 
 Una chat AI in stile [ellenchat.evangefy.com](https://ellenchat.evangefy.com/) che gira **interamente in locale**: interfaccia web moderna con streaming delle risposte, cronologia delle conversazioni e persona configurabile.
@@ -61,7 +72,10 @@ ASSISTANT_NAME=Sofia SYSTEM_PROMPT="Sei Sofia, un'esperta di cucina italiana..."
 │   ├── index.html     # Struttura della pagina
 │   ├── style.css      # Stile (sidebar scura, bolle, animazioni)
 │   └── app.js         # Logica UI: conversazioni, streaming, mini-renderer Markdown
-└── package.json
+├── package.json
+├── options-agent/     # Seconda app: Agente Opzioni (vedi options-agent/README.md)
+├── cammellopazzo-options-agent/   # Manifest dell'app Umbrel
+└── umbrel-app-store.yml           # Community app store da aggiungere su Umbrel
 ```
 
 ## Come funziona lo streaming
@@ -70,3 +84,20 @@ ASSISTANT_NAME=Sofia SYSTEM_PROMPT="Sei Sofia, un'esperta di cucina italiana..."
 2. Il server apre uno stream verso il modello (Claude o Ollama)
 3. Ogni frammento di testo viene inoltrato al browser come evento SSE
 4. La UI aggiorna la bolla del messaggio in tempo reale, con rendering Markdown
+
+---
+
+## Agente Opzioni (app Umbrel)
+
+Interfaccia web e agente che trasformano una domanda in italiano in una query strutturata per il
+sistema multiagentico di opzioni che gira sul mini, la inviano e riportano la risposta in streaming.
+
+```bash
+cd options-agent
+MULTIAGENT_URL=http://10.0.0.12:8000 npm start      # oppure: docker compose up -d --build
+```
+
+Su Umbrel: **App Store → ⋯ → Community App Stores →**
+`https://github.com/danieknamaste-lang/cammellopazzo` → installa *Agente Opzioni*.
+
+Documentazione completa: [options-agent/README.md](options-agent/README.md).
