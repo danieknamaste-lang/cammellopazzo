@@ -7,9 +7,10 @@
  * riavviare il container.
  */
 
-'use strict';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const path = require('path');
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 function num(value, fallback) {
   const n = Number(value);
@@ -25,7 +26,7 @@ const MODES = ['auto', 'openai', 'json', 'sse', 'ollama', 'mock'];
 const env = {
   port: num(process.env.PORT, 3100),
   host: clean(process.env.HOST) || '0.0.0.0',
-  dataDir: clean(process.env.DATA_DIR) || path.join(__dirname, '..', 'data'),
+  dataDir: clean(process.env.DATA_DIR) || path.join(here, '..', 'data'),
   appToken: clean(process.env.APP_TOKEN),
   maxSteps: Math.max(1, Math.min(4, num(process.env.AGENT_MAX_STEPS, 2))),
   multiagent: {
@@ -95,4 +96,4 @@ function plannerCandidates() {
   return list;
 }
 
-module.exports = { env, current, MODES, applySettings, publicView, plannerCandidates };
+export { env, current, MODES, applySettings, publicView, plannerCandidates };

@@ -1,7 +1,14 @@
 /* Agente Opzioni — logica frontend (nessuna dipendenza) */
 
+import * as standalone from './agent/standalone.js';
+
 (() => {
   'use strict';
+
+  // Con un server Node davanti si usano le API; nell'app Android (o aprendo i
+  // file senza server) l'agente gira dentro la pagina e parla direttamente col
+  // sistema multiagentico.
+  let autonoma = false;
 
   const TOKEN_KEY = 'opzioni.appToken';
   const $ = (id) => document.getElementById(id);
@@ -40,6 +47,8 @@
   }
 
   async function api(path, options = {}) {
+    if (autonoma) return standalone.handle(path, options);
+
     const headers = Object.assign({ 'content-type': 'application/json' }, options.headers || {});
     if (token()) headers['x-app-token'] = token();
     const res = await fetch(path, Object.assign({}, options, { headers }));
@@ -145,6 +154,7 @@
     bindUi();
     renderExamples();
     try {
+      await rilevaModalita();
       const data = await api('/api/config');
       state.schema = data.schema;
       state.config = data.config;
@@ -161,6 +171,26 @@
     }
     loadHistory();
     loadPresets();
+  }
+
+  /** C'è un server dell'app dietro questa pagina, o dobbiamo fare tutto qui? */
+  async function rilevaModalita() {
+    if (window.OPZIONI_STANDALONE === true || location.protocol === 'file:') {
+      autonoma = true;
+    } else {
+      try {
+        const res = await fetch('/api/config', {
+          method: 'HEAD',
+          signal: AbortSignal.timeout(3000),
+          headers: token() ? { 'x-app-token': token() } : {},
+        });
+        // 404/405 significa comunque che qualcosa risponde: contano gli errori di rete
+        autonoma = res.status >= 500;
+      } catch {
+        autonoma = true;
+      }
+    }
+    if (autonoma) $('brand-sub').textContent = 'collegamento diretto al mac';
   }
 
   function renderExamples() {
@@ -452,6 +482,11 @@
     if (token()) headers['x-app-token'] = token();
 
     try {
+      if (autonoma) {
+        await standalone.run({ text, query }, handleEvent, controller.signal);
+        return;
+      }
+
       const res = await fetch('/api/run', {
         method: 'POST',
         headers,
@@ -653,6 +688,38 @@
     }
   }
 
+  /** Prova le porte più comuni sull'indirizzo scritto e propone quella giusta. */
+  async function findPort() {
+    const hint = $('find-port-hint');
+    const indirizzo = $('s-url').value.trim();
+    if (!indirizzo) {
+      hint.textContent = "scrivi prima l'indirizzo del mac (es. 100.101.102.103)";
+      return;
+    }
+
+    $('find-port').disabled = true;
+    hint.textContent = 'cerco… (può volerci un minuto)';
+    try {
+      const esito = await api(`/api/scan?host=${encodeURIComponent(indirizzo)}`);
+      const trovate = esito.trovate || [];
+      if (!trovate.length) {
+        hint.textContent = 'nessuna porta risponde: il mac è raggiungibile via Tailscale? il sistema è avviato?';
+        return;
+      }
+      const migliore = trovate.find((t) => t.mode !== 'json' || t.path) || trovate[0];
+      $('s-url').value = migliore.base;
+      if (migliore.path) $('s-path').value = migliore.path;
+      hint.textContent =
+        `trovata la porta ${migliore.porta} (${migliore.detail || migliore.mode})` +
+        (trovate.length > 1 ? ` — altre: ${trovate.filter((t) => t !== migliore).map((t) => t.porta).join(', ')}` : '') +
+        '. Premi Salva.';
+    } catch (err) {
+      hint.textContent = `ricerca non riuscita: ${err.message}`;
+    } finally {
+      $('find-port').disabled = false;
+    }
+  }
+
   async function testConnection() {
     $('settings-status').textContent = 'provo…';
     try {
@@ -761,6 +828,7 @@
     $('save-settings').addEventListener('click', saveSettings);
     $('test-conn').addEventListener('click', testConnection);
     $('copy-diagnostics').addEventListener('click', copyDiagnostics);
+    $('find-port').addEventListener('click', findPort);
   }
 
   init();

@@ -15,6 +15,17 @@ Pensata per essere installata su **Umbrel** come app e usata dal telefono.
   └───────────────────────────────┘
 ```
 
+## Due modi di eseguirlo
+
+| Modalità | Dove gira l'agente | Quando serve |
+| --- | --- | --- |
+| **Con server** (Umbrel, mini, qualunque Docker) | nel container Node | il server raggiunge il sistema multiagentico; storico e preset condivisi fra dispositivi |
+| **Autonoma** (app Android, o `public/` servita da sola) | dentro la pagina | il server *non* raggiunge il sistema, ma il telefono sì (Tailscale) — vedi [android-opzioni](../android-opzioni/README.md) |
+
+L'interfaccia è la stessa e sceglie da sola: se non trova le API dell'app, esegue tutto in locale con
+i moduli in `public/agent/`. Schema della query ed estrattore a regole (`public/lib/`) sono
+condivisi fra server e browser, quindi la logica non è duplicata.
+
 ## Cosa fa
 
 1. **Pianifica**: scrivi in italiano ("analizza un iron condor su NVDA a 30 giorni, che succede se la
@@ -120,6 +131,7 @@ La pagina è una PWA: da Chrome sul telefono, *Aggiungi a schermata Home*.
 | `GET /api/history` · `GET /api/history/:id` · `DELETE /api/history/:id` | storico |
 | `GET/POST /api/presets` · `DELETE /api/presets/:id` | preset |
 | `POST /api/settings` | endpoint, modalità, percorso, modello e token del sistema remoto |
+| `GET /api/scan?host=…` | prova le porte più comuni sull'host e dice quali rispondono e con che interfaccia |
 | `GET /api/diagnostics` | stato completo: configurazione, collegamento, storage, pianificatore, ultimi errori (nessun segreto) |
 | `POST /api/client-error` | la UI registra qui gli errori che mostra, così finiscono nella diagnostica |
 
@@ -156,6 +168,10 @@ sudo chown -R 1000:1000 ~/umbrel/app-data/cammellopazzo-options-agent/data
 In ogni caso l'app non muore più: ripiega su una cartella temporanea e lo scrive nel banner giallo in
 cima alla pagina (storico e preset si perdono al riavvio finché non sistemi i permessi).
 
+**Non conosci la porta del sistema.** Scrivi solo l'indirizzo nel campo Endpoint e premi
+**Trova la porta**: vengono provate le porte tipiche (8000, 8080, 5000, 7860, 8501, 11434, 1234…) e
+quelle che rispondono vengono riconosciute e proposte.
+
 **Pallino rosso / "non raggiungibile".** Il container non vede il mini. Ricorda che dentro Docker
 `localhost` è il container stesso: usa l'IP della LAN (`http://10.0.0.12:8000`). Se il sistema gira
 sullo stesso Umbrel, l'host si raggiunge su `http://10.21.21.1:PORTA`.
@@ -177,7 +193,10 @@ options-agent/
 │   ├── llm.js           # provider del pianificatore (Claude/DeepSeek/Ollama)
 │   ├── connector.js     # adattatori verso il sistema sul mini
 │   └── store.js         # storico, preset, impostazioni su file
-├── public/              # interfaccia (mobile first, PWA)
+├── public/
+│   ├── lib/             # schema e regole: condivisi con browser e app Android
+│   ├── agent/           # agente lato client (modalità autonoma)
+│   └── …                # interfaccia (mobile first, PWA)
 ├── test/smoke.js        # test end-to-end senza dipendenze
 ├── docker-entrypoint.sh # sistema i permessi di /data e lascia i privilegi
 └── Dockerfile

@@ -18,22 +18,22 @@
  *   DATA_DIR              cartella dei dati persistenti (default ./data)
  */
 
-'use strict';
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const http = require('http');
-const fs = require('fs');
+import * as config from './lib/config.js';
+import * as schema from './public/lib/schema.js';
+import * as planner from './lib/planner.js';
+import * as connector from './lib/connector.js';
+import * as store from './lib/store.js';
+import * as diagnostics from './lib/diagnostics.js';
+import * as llm from './lib/llm.js';
+
 const fsp = fs.promises;
-const path = require('path');
-
-const config = require('./lib/config');
-const schema = require('./lib/schema');
-const planner = require('./lib/planner');
-const connector = require('./lib/connector');
-const store = require('./lib/store');
-const diagnostics = require('./lib/diagnostics');
-const llm = require('./lib/llm');
-
-const PUBLIC_DIR = path.join(__dirname, 'public');
+const here = path.dirname(fileURLToPath(import.meta.url));
+const PUBLIC_DIR = path.join(here, 'public');
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -241,6 +241,17 @@ const routes = {
     sendJson(res, 200, await connector.status(url.searchParams.get('refresh') === '1'));
   },
 
+  // Cerca su quale porta dell'host risponde il sistema multiagentico
+  'GET /api/scan': async (req, res, url) => {
+    const host = url.searchParams.get('host') || '';
+    if (!host) return sendJson(res, 400, { error: 'Manca il parametro host' });
+    try {
+      sendJson(res, 200, { host, trovate: await connector.scanHost(host) });
+    } catch (err) {
+      sendJson(res, 400, { error: err.message });
+    }
+  },
+
   'POST /api/plan': async (req, res) => {
     const body = await readBody(req);
     const result = await planner.plan(body.text || '', { base: body.base });
@@ -390,6 +401,6 @@ async function start() {
   return server;
 }
 
-if (require.main === module) start();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) start();
 
-module.exports = { server, start };
+export { server, start };

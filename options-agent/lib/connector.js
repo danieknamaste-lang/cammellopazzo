@@ -11,10 +11,11 @@
  *   mock   → simulazione locale, per provare la UI prima di collegare il mini
  */
 
-'use strict';
-
-const { current } = require('./config');
-const { queryToPrompt, describeQuery } = require('./schema');
+import { current } from './config.js';
+import { PORTE_COMUNI, parseHost } from '../public/lib/ports.js';
+// Schema e regole stanno in public/lib/ perché li usa anche il browser
+// (interfaccia web e app Android) come file statici: unica fonte di verità.
+import { queryToPrompt, describeQuery } from '../public/lib/schema.js';
 
 const JSON_PATHS = ['/query', '/ask', '/run', '/chat', '/invoke', '/api/query', '/api/ask', '/api/chat'];
 const TEXT_KEYS = [
@@ -395,4 +396,67 @@ async function run(query, { emit, signal } = {}) {
   return { text: text || '', mode: info.mode, path: info.path, prompt };
 }
 
-module.exports = { run, status, detect, extractAnswer };
+export { run, status, detect, extractAnswer };
+
+/**
+ * Cerca su quale porta di un host risponde qualcosa.
+ *
+ * Versione server della scansione: qui non ci sono limiti CORS, quindi si può
+ * anche capire che tipo di interfaccia è. Utile quando si conosce l'indirizzo
+ * della macchina ma non la porta del sistema multiagentico.
+ */
+async function scanHost(hostTesto, { porte = PORTE_COMUNI, timeout = 2500 } = {}) {
+  const host = parseHost(hostTesto);
+  if (!host) throw new Error('Indirizzo non valido');
+
+  const daProvare = host.port ? [host.port, ...porte.filter((p) => p !== host.port)] : porte;
+
+  const esiti = await Promise.all(
+    daProvare.map(async (porta) => {
+      const base = `${host.protocol}//${host.hostname}:${porta}`;
+      try {
+        const res = await fetch(base, { signal: AbortSignal.timeout(timeout) });
+        const tipo = await riconosci(base, timeout);
+        return { porta, base, status: res.status, ...tipo };
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  return esiti.filter(Boolean);
+}
+
+/** Guarda gli endpoint tipici per capire con che cosa si sta parlando. */
+async function riconosci(base, timeout) {
+  const prova = async (percorso) => {
+    try {
+      const res = await fetch(`${base}${percorso}`, { signal: AbortSignal.timeout(timeout) });
+      if (!res.ok) return null;
+      return (res.headers.get('content-type') || '').includes('json') ? await res.json() : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const models = await prova('/v1/models');
+  if (models && (Array.isArray(models.data) || models.object === 'list')) {
+    return { mode: 'openai', detail: 'API compatibile OpenAI' };
+  }
+  const tags = await prova('/api/tags');
+  if (tags && Array.isArray(tags.models)) return { mode: 'ollama', detail: 'Ollama' };
+
+  const openapi = await prova('/openapi.json');
+  if (openapi && openapi.paths) {
+    const percorsi = Object.keys(openapi.paths);
+    const scelto = percorsi.find((p) => /query|ask|run|invoke|chat/i.test(p));
+    return {
+      mode: scelto === '/v1/chat/completions' ? 'openai' : 'json',
+      path: scelto || null,
+      detail: scelto ? `espone ${scelto}` : `API HTTP (${percorsi.length} percorsi)`,
+    };
+  }
+  return { mode: 'json', detail: 'risponde, interfaccia da confermare' };
+}
+
+export { scanHost };

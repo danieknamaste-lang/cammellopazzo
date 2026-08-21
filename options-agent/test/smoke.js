@@ -5,13 +5,11 @@
  * il giro completo: rilevamento endpoint → pianificazione → invio → storico.
  */
 
-'use strict';
-
-const http = require('http');
-const os = require('os');
-const path = require('path');
-const fs = require('fs');
-const assert = require('assert');
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
+import assert from 'node:assert';
 
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'options-agent-test-'));
 process.env.DATA_DIR = DATA_DIR;
@@ -54,10 +52,10 @@ async function main() {
   await new Promise((r) => fake.listen(0, r));
   process.env.MULTIAGENT_URL = `http://127.0.0.1:${fake.address().port}`;
 
-  const schema = require('../lib/schema');
-  const connector = require('../lib/connector');
-  const planner = require('../lib/planner');
-  const { server, start } = require('../server');
+  const schema = await import('../public/lib/schema.js');
+  const connector = await import('../lib/connector.js');
+  const planner = await import('../lib/planner.js');
+  const { server, start } = await import('../server.js');
 
   await start();
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -85,7 +83,7 @@ async function main() {
   });
 
   await check('le regole leggono ticker minuscoli e livello di rischio', async () => {
-    const rules = require('../lib/rules');
+    const rules = await import('../public/lib/rules.js');
     const wheel = schema.normalizeQuery(rules.extract('Crea un wheel strategy per spcx con basso rischio'));
     assert.deepStrictEqual(wheel.underlyings, ['SPCX']);
     assert.strictEqual(wheel.strategy, 'wheel');
@@ -160,8 +158,8 @@ async function main() {
     if (process.getuid && process.getuid() === 0) return; // da root i permessi non si applicano
     const locked = fs.mkdtempSync(path.join(os.tmpdir(), 'options-agent-locked-'));
     fs.chmodSync(locked, 0o555);
-    const store = require('../lib/store');
-    const { current } = require('../lib/config');
+    const store = await import('../lib/store.js');
+    const { current } = await import('../lib/config.js');
     const previous = current.dataDir;
     current.dataDir = locked;
     try {
@@ -186,6 +184,71 @@ async function main() {
     const data = await (await fetch(`${base}/api/presets`)).json();
     assert.strictEqual(data.items[0].name, 'test');
     assert.deepStrictEqual(data.items[0].query.underlyings, ['SPY']);
+  });
+
+  await check('la ricerca della porta trova il sistema', async () => {
+    const porta = Number(new URL(process.env.MULTIAGENT_URL).port);
+    const trovate = await connector.scanHost('127.0.0.1', { porte: [porta, 1], timeout: 1500 });
+    assert.strictEqual(trovate.length, 1, `porte trovate: ${JSON.stringify(trovate)}`);
+    assert.strictEqual(trovate[0].porta, porta);
+    assert.strictEqual(trovate[0].path, '/query');
+  });
+
+  await check("il connettore dell'app Android raggiunge il sistema", async () => {
+    const client = await import('../public/agent/connector-client.js');
+    const impostazioni = { url: process.env.MULTIAGENT_URL, mode: 'auto', path: '', model: '', token: '' };
+
+    const stato = await client.status(impostazioni, true);
+    assert.strictEqual(stato.mode, 'json');
+    assert.ok(stato.ok, 'il finto sistema doveva risultare raggiungibile');
+
+    let testo = '';
+    const agenti = [];
+    const esito = await client.run(
+      schema.normalizeQuery({ underlying: 'NVDA', strategy: 'iron_condor', horizon: { dte: 30 } }),
+      impostazioni,
+      {
+        emit: (e) => {
+          if (e.type === 'token') testo += e.text;
+          if (e.type === 'agent') agenti.push(e.name);
+        },
+      }
+    );
+    assert.ok(esito.text.includes('ricevuto NVDA'), `risposta inattesa: ${esito.text}`);
+    assert.deepStrictEqual(agenti, ['quant']);
+    assert.ok(testo.includes('[quant]'), 'manca la sezione dell\'agente');
+  });
+
+  await check("l'agente autonomo pianifica e salva senza server", async () => {
+    // localStorage finto: nel telefono lo fornisce la WebView
+    const memoria = new Map();
+    globalThis.localStorage = {
+      getItem: (k) => (memoria.has(k) ? memoria.get(k) : null),
+      setItem: (k, v) => memoria.set(k, String(v)),
+      removeItem: (k) => memoria.delete(k),
+    };
+    const app = await import('../public/agent/standalone.js');
+    await app.handle('/api/settings', {
+      method: 'POST',
+      body: JSON.stringify({ multiagent: { url: process.env.MULTIAGENT_URL, mode: 'auto' } }),
+    });
+
+    const piano = await app.handle('/api/plan', {
+      method: 'POST',
+      body: JSON.stringify({ text: 'iron condor su NVDA a 30 giorni' }),
+    });
+    assert.deepStrictEqual(piano.query.underlyings, ['NVDA']);
+
+    const eventi = [];
+    await app.run({ text: 'iron condor su NVDA a 30 giorni' }, (e) => eventi.push(e));
+    assert.ok(eventi.some((e) => e.type === 'done'), 'manca l\'evento done');
+
+    const storico = await app.handle('/api/history');
+    assert.strictEqual(storico.items.length, 1);
+    assert.ok(storico.items[0].preview.includes('ricevuto NVDA'));
+
+    const diagnostica = await app.handle('/api/diagnostics');
+    assert.ok(diagnostica.collegamento.ok);
   });
 
   console.log(results.join('\n'));

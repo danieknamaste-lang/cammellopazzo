@@ -4,9 +4,13 @@
  * leggere i log del container. Non espone segreti: solo "presente / assente".
  */
 
-'use strict';
+import os from 'node:os';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const os = require('os');
+const here = path.dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(fs.readFileSync(path.join(here, '..', 'package.json'), 'utf8'));
 
 const MAX_ERRORS = 20;
 const errors = [];
@@ -55,7 +59,7 @@ async function build({ config, connector, storage, llm }) {
   return {
     generato: new Date().toISOString(),
     app: {
-      versione: require('../package.json').version,
+      versione: pkg.version,
       node: process.version,
       piattaforma: `${os.platform()} ${os.arch()}`,
       utente_uid: typeof process.getuid === 'function' ? process.getuid() : null,
@@ -70,4 +74,4 @@ async function build({ config, connector, storage, llm }) {
   };
 }
 
-module.exports = { record, recent, build };
+export { record, recent, build };

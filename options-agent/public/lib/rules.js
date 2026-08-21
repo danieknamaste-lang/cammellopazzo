@@ -5,8 +5,6 @@
  * e riempire i campi che il pianificatore LLM ha lasciato vuoti.
  */
 
-'use strict';
-
 const STRATEGY_PATTERNS = [
   [/\biron\s*condor\b/i, 'iron_condor'],
   [/\biron\s*butterfly\b|\bfarfalla\s*di\s*ferro\b/i, 'iron_butterfly'],
@@ -249,4 +247,4 @@ function merge(primary, fallback) {
   return out;
 }
 
-module.exports = { extract, merge };
+export { extract, merge };

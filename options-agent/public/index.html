@@ -216,6 +216,10 @@
         <p class="hint">Indirizzo del sistema multiagentico che gira sul mini. Salvate sul server: valgono anche dal telefono.</p>
         <label class="field-label" for="s-url">Endpoint</label>
         <input id="s-url" type="url" placeholder="http://10.0.0.12:8000" />
+        <div class="row">
+          <button class="btn ghost small" id="find-port" type="button">Trova la porta</button>
+          <span class="hint" id="find-port-hint">scrivi solo l'indirizzo (es. 100.101.102.103) e cerco io</span>
+        </div>
         <label class="field-label" for="s-mode">Interfaccia</label>
         <select id="s-mode">
           <option value="auto">auto (rileva)</option>
@@ -248,6 +252,6 @@
       </form>
     </dialog>
 
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
   </body>
 </html>
