@@ -9,11 +9,9 @@
  * continua a funzionare, con meno finezza.
  */
 
-'use strict';
-
-const llm = require('./llm');
-const rules = require('./rules');
-const schema = require('./schema');
+import * as llm from './llm.js';
+import * as rules from '../public/lib/rules.js';
+import * as schema from '../public/lib/schema.js';
 
 const SCHEMA_HINT = JSON.stringify(
   {
@@ -131,4 +129,4 @@ async function refine(query, answer) {
   return { followUp: true, reason: parsed.reason || 'Approfondimento', query: next };
 }
 
-module.exports = { plan, refine };
+export { plan, refine };

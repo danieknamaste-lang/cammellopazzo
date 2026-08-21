@@ -5,15 +5,14 @@
  * stessa cronologia si ritrova dal telefono, dal portatile o dal mini.
  */
 
-'use strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
 
-const fs = require('fs');
+import { current, applySettings } from './config.js';
+
 const fsp = fs.promises;
-const os = require('os');
-const path = require('path');
-const crypto = require('crypto');
-
-const { current, applySettings } = require('./config');
 
 const HISTORY_LIMIT = 200;
 const files = {
@@ -179,7 +178,7 @@ async function saveSettings(settings) {
   return merged;
 }
 
-module.exports = {
+export {
   ensureDir,
   storageStatus,
   listHistory,

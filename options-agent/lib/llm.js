@@ -5,9 +5,7 @@
  * Ordine automatico: Claude → DeepSeek → Ollama sul mini → nessuno (solo regole).
  */
 
-'use strict';
-
-const { current } = require('./config');
+import { current } from './config.js';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -151,4 +149,4 @@ function parseJson(text) {
   }
 }
 
-module.exports = { complete, parseJson, resolveProvider };
+export { complete, parseJson, resolveProvider };

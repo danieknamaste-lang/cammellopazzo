@@ -15,6 +15,17 @@ Pensata per essere installata su **Umbrel** come app e usata dal telefono.
   └───────────────────────────────┘
 ```
 
+## Due modi di eseguirlo
+
+| Modalità | Dove gira l'agente | Quando serve |
+| --- | --- | --- |
+| **Con server** (Umbrel, mini, qualunque Docker) | nel container Node | il server raggiunge il sistema multiagentico; storico e preset condivisi fra dispositivi |
+| **Autonoma** (app Android, o `public/` servita da sola) | dentro la pagina | il server *non* raggiunge il sistema, ma il telefono sì (Tailscale) — vedi [android-opzioni](../android-opzioni/README.md) |
+
+L'interfaccia è la stessa e sceglie da sola: se non trova le API dell'app, esegue tutto in locale con
+i moduli in `public/agent/`. Schema della query ed estrattore a regole (`public/lib/`) sono
+condivisi fra server e browser, quindi la logica non è duplicata.
+
 ## Cosa fa
 
 1. **Pianifica**: scrivi in italiano ("analizza un iron condor su NVDA a 30 giorni, che succede se la
@@ -177,7 +188,10 @@ options-agent/
 │   ├── llm.js           # provider del pianificatore (Claude/DeepSeek/Ollama)
 │   ├── connector.js     # adattatori verso il sistema sul mini
 │   └── store.js         # storico, preset, impostazioni su file
-├── public/              # interfaccia (mobile first, PWA)
+├── public/
+│   ├── lib/             # schema e regole: condivisi con browser e app Android
+│   ├── agent/           # agente lato client (modalità autonoma)
+│   └── …                # interfaccia (mobile first, PWA)
 ├── test/smoke.js        # test end-to-end senza dipendenze
 ├── docker-entrypoint.sh # sistema i permessi di /data e lascia i privilegi
 └── Dockerfile

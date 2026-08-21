@@ -5,7 +5,8 @@ Due app che girano in casa:
 | App | Cartella | Cosa fa |
 | --- | -------- | ------- |
 | **EllenChat** | `.` (radice) | chat AI locale con streaming, cronologia e persona configurabile |
-| **[Agente Opzioni](options-agent/README.md)** | `options-agent/` | interfaccia + agente per il sistema multiagentico di opzioni che gira sul mini, installabile su **Umbrel** |
+| **[Agente Opzioni](options-agent/README.md)** | `options-agent/` | interfaccia + agente per il sistema multiagentico di opzioni, installabile su **Umbrel** |
+| **[Agente Opzioni per Android](android-opzioni/README.md)** | `android-opzioni/` | la stessa app come **APK**: l'agente gira nel telefono e parla direttamente col mac via Tailscale |
 
 ---
 
@@ -101,3 +102,12 @@ Su Umbrel: **App Store → ⋯ → Community App Stores →**
 `https://github.com/danieknamaste-lang/cammellopazzo` → installa *Agente Opzioni*.
 
 Documentazione completa: [options-agent/README.md](options-agent/README.md).
+
+## Agente Opzioni su Android
+
+Quando il server e il mac stanno su reti diverse, l'anello debole è il server: il telefono invece è
+già nella tailnet del mac. L'APK fa girare lo stesso agente dentro il telefono e si collega
+direttamente all'endpoint del mac.
+
+APK pronto all'uso nelle [Releases](https://github.com/danieknamaste-lang/cammellopazzo/releases);
+istruzioni in [android-opzioni/README.md](android-opzioni/README.md).

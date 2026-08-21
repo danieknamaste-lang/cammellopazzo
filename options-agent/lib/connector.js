@@ -11,10 +11,10 @@
  *   mock   → simulazione locale, per provare la UI prima di collegare il mini
  */
 
-'use strict';
-
-const { current } = require('./config');
-const { queryToPrompt, describeQuery } = require('./schema');
+import { current } from './config.js';
+// Schema e regole stanno in public/lib/ perché li usa anche il browser
+// (interfaccia web e app Android) come file statici: unica fonte di verità.
+import { queryToPrompt, describeQuery } from '../public/lib/schema.js';
 
 const JSON_PATHS = ['/query', '/ask', '/run', '/chat', '/invoke', '/api/query', '/api/ask', '/api/chat'];
 const TEXT_KEYS = [
@@ -395,4 +395,4 @@ async function run(query, { emit, signal } = {}) {
   return { text: text || '', mode: info.mode, path: info.path, prompt };
 }
 
-module.exports = { run, status, detect, extractAnswer };
+export { run, status, detect, extractAnswer };

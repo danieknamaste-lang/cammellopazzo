@@ -6,8 +6,6 @@
  * sistema che gira sul mini).
  */
 
-'use strict';
-
 const OBJECTIVES = [
   { id: 'analyze', label: 'Analizza strategia' },
   { id: 'screen', label: 'Cerca opportunità' },
@@ -305,7 +303,7 @@ function queryToPrompt(query) {
   return lines.join('\n');
 }
 
-module.exports = {
+export {
   OBJECTIVES,
   STRATEGIES,
   METRICS,
