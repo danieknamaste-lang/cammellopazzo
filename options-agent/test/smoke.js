@@ -84,6 +84,22 @@ async function main() {
     assert.strictEqual(result.query.constraints.max_risk, 500);
   });
 
+  await check('le regole leggono ticker minuscoli e livello di rischio', async () => {
+    const rules = require('../lib/rules');
+    const wheel = schema.normalizeQuery(rules.extract('Crea un wheel strategy per spcx con basso rischio'));
+    assert.deepStrictEqual(wheel.underlyings, ['SPCX']);
+    assert.strictEqual(wheel.strategy, 'wheel');
+    assert.strictEqual(wheel.risk_profile, 'conservativo');
+
+    const credito = schema.normalizeQuery(rules.extract('Cerca put spread in credito su SPY'));
+    assert.strictEqual(credito.strategy, 'bull_put_spread');
+
+    // le parole comuni dopo una preposizione non devono diventare sottostanti
+    const generico = schema.normalizeQuery(rules.extract('una strategia su questo titolo con rischio contenuto'));
+    assert.deepStrictEqual(generico.underlyings, []);
+    assert.strictEqual(generico.risk_profile, 'conservativo');
+  });
+
   await check('/api/config espone schema e stato', async () => {
     const data = await (await fetch(`${base}/api/config`)).json();
     assert.ok(data.schema.strategies.length > 5);

@@ -13,8 +13,8 @@ const STRATEGY_PATTERNS = [
   [/\bcovered\s*call\b|\bcall\s*coperta\b/i, 'covered_call'],
   [/\bcash[\s-]?secured\s*put\b|\bput\s*garantita\b/i, 'cash_secured_put'],
   [/\bbull\s*call\s*spread\b|\bcall\s*spread\s*rialzista\b/i, 'bull_call_spread'],
-  [/\bbull\s*put\s*spread\b|\bput\s*spread\s*rialzista\b/i, 'bull_put_spread'],
-  [/\bbear\s*call\s*spread\b|\bcall\s*spread\s*ribassista\b/i, 'bear_call_spread'],
+  [/\bbull\s*put\s*spread\b|\bput\s*spread\s*rialzista\b|\bput\s*spread[^.,;]{0,15}credit\w*\b/i, 'bull_put_spread'],
+  [/\bbear\s*call\s*spread\b|\bcall\s*spread\s*ribassista\b|\bcall\s*spread[^.,;]{0,15}credit\w*\b/i, 'bear_call_spread'],
   [/\bbear\s*put\s*spread\b|\bput\s*spread\s*ribassista\b/i, 'bear_put_spread'],
   [/\bcalendar\b|\bcalendario\b/i, 'calendar'],
   [/\bdiagonal\w*\b/i, 'diagonal'],
@@ -67,6 +67,21 @@ const NOT_TICKERS = new Set([
   'AI', 'IA', 'CPI', 'FED', 'BCE', 'EV', 'POP', 'OI', 'ROI', 'PL', 'PNL', 'API', 'OK',
 ]);
 
+// Parole che possono seguire una preposizione senza essere un sottostante.
+const COMMON_WORDS = new Set([
+  'UN', 'UNO', 'UNA', 'IL', 'LO', 'LA', 'LE', 'GLI', 'DEI', 'DEL', 'DELLA', 'DELLE', 'DEGLI',
+  'QUESTO', 'QUESTA', 'QUEL', 'QUELLA', 'MIO', 'MIA', 'TUTTO', 'TUTTI', 'OGNI', 'ALTRO', 'ALTRA',
+  'CUI', 'CHE', 'CHI', 'COSA', 'COME', 'DOVE', 'QUALE', 'QUALI', 'MENO', 'PIU',
+  'TITOLO', 'TITOLI', 'INDICE', 'INDICI', 'AZIONE', 'AZIONI', 'MERCATO', 'BORSA', 'ETF', 'FUTURE',
+  'OPZIONE', 'OPZION', 'STRIKE', 'SPREAD', 'CALL', 'PUT', 'CREDITO', 'DEBITO', 'RISCHIO', 'RISK',
+  'DELTA', 'GAMMA', 'THETA', 'VEGA', 'RHO', 'VOL', 'IV', 'DTE', 'ATM', 'OTM', 'ITM',
+  'WHEEL', 'CONDOR', 'STRADDLE', 'STRANGLE', 'COLLAR', 'BUTTERFLY', 'CALENDAR', 'RATIO', 'DIAGONAL',
+  'GIORNO', 'GIORNI', 'MESE', 'MESI', 'ANNO', 'ANNI', 'OGGI', 'DOMANI', 'ORA', 'SUBITO',
+  'SCADENZA', 'POSIZIONE', 'PORTAFOGLIO', 'STRATEGIA', 'CAPITALE', 'EURO', 'DOLLARI', 'BASSO',
+  'ALTO', 'MEDIO', 'BASSA', 'ALTA', 'MEDIA', 'BUON', 'BUONA', 'MEGLIO', 'PEGGIO', 'CIRCA',
+  'ME', 'TE', 'NOI', 'VOI', 'LORO', 'SE', 'NON', 'ANCHE', 'SOLO', 'GIA', 'MAI', 'POI',
+]);
+
 const KNOWN_TICKERS = [
   'SPY', 'QQQ', 'IWM', 'SPX', 'NDX', 'VIX', 'DAX', 'FTSEMIB', 'ESTX50',
   'NVDA', 'AAPL', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'GOOG', 'AMD', 'NFLX',
@@ -83,6 +98,13 @@ function extractUnderlyings(text) {
     if (!NOT_TICKERS.has(word)) found.add(word);
   }
   for (const m of text.matchAll(/\$([A-Za-z]{1,6})\b/g)) found.add(m[1].toUpperCase());
+
+  // Ticker scritti in minuscolo dopo una preposizione ("su nvda", "per spcx"):
+  // si accettano solo parole che non sono termini comuni o gergo di opzioni.
+  for (const m of text.matchAll(/\b(?:su|sul|sullo|sulla|sugli|sulle|per|on|di)\s+([a-zA-Z]{2,6})\b/g)) {
+    const word = m[1].toUpperCase();
+    if (!NOT_TICKERS.has(word) && !COMMON_WORDS.has(word)) found.add(word);
+  }
   return [...found].slice(0, 6);
 }
 
@@ -193,8 +215,20 @@ function extract(text) {
   };
   if (strategy) query.strategy = strategy;
   if (objective) query.objective = objective;
-  if (/\bconservativ\w+|\bprudent\w+/i.test(input)) query.risk_profile = 'conservativo';
-  else if (/\baggressiv\w+|\bspeculativ\w+/i.test(input)) query.risk_profile = 'aggressivo';
+  if (
+    /\bconservativ\w+|\bprudent\w+/i.test(input) ||
+    /\b(?:basso|poco|minimo|contenuto|ridotto|bassa|limitato)\s+rischi\w*/i.test(input) ||
+    /\brischi\w*\s+(?:basso|contenuto|ridotto|minimo|limitato)\b/i.test(input) ||
+    /\bsenza\s+(?:troppo\s+)?rischi\w*/i.test(input)
+  ) {
+    query.risk_profile = 'conservativo';
+  } else if (
+    /\baggressiv\w+|\bspeculativ\w+/i.test(input) ||
+    /\b(?:alto|elevato|massimo)\s+rischi\w*/i.test(input) ||
+    /\brischi\w*\s+(?:alto|elevato)\b/i.test(input)
+  ) {
+    query.risk_profile = 'aggressivo';
+  }
 
   return query;
 }
