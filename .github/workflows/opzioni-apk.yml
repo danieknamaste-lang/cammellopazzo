@@ -47,9 +47,9 @@ jobs:
         working-directory: android-opzioni
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
-          if ! grep -q 'usesCleartextTraffic' "$MANIFEST"; then
-            sed -i 's|<application |<application android:usesCleartextTraffic="true" |' "$MANIFEST"
-          fi
+          # Nel manifest generato "<application" è seguito da un a capo, quindi
+          # l'attributo va inserito subito dopo il tag, non cercando uno spazio.
+          perl -0pi -e 's|<application(?![^>]*usesCleartextTraffic)|<application android:usesCleartextTraffic="true"|' "$MANIFEST"
           grep -o 'android:usesCleartextTraffic="[^"]*"' "$MANIFEST"
 
       - name: Build APK (debug)
