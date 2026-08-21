@@ -7,6 +7,7 @@
  */
 
 import { queryToPrompt, describeQuery } from '../lib/schema.js';
+import { PORTE_COMUNI, parseHost } from '../lib/ports.js';
 
 const JSON_PATHS = ['/query', '/ask', '/run', '/chat', '/invoke', '/api/query', '/api/ask', '/api/chat'];
 const TEXT_KEYS = [
@@ -328,4 +329,43 @@ export async function status(settings, force = false) {
     detail: info.detail,
     latencyMs: Date.now() - inizio,
   };
+}
+
+/**
+ * Cerca su quale porta risponde qualcosa, dato un host.
+ *
+ * Serve quando si conosce l'indirizzo Tailscale del mac ma non la porta del
+ * sistema multiagentico. Una porta chiusa fa fallire la connessione subito;
+ * una aperta risponde (anche con 404, e va benissimo: vuol dire che c'è).
+ */
+export async function scanPorts(hostTesto, { onProgress, porte = PORTE_COMUNI, timeout = 2500 } = {}) {
+  const host = parseHost(hostTesto);
+  if (!host) throw new Error('Indirizzo non valido');
+
+  const daProvare = host.port ? [host.port, ...porte.filter((p) => p !== host.port)] : porte;
+  const trovate = [];
+
+  for (let i = 0; i < daProvare.length; i++) {
+    const porta = daProvare[i];
+    const base = `${host.protocol}//${host.hostname}:${porta}`;
+    if (onProgress) onProgress({ porta, fatte: i, totali: daProvare.length, trovate: trovate.slice() });
+
+    let risponde = false;
+    try {
+      // no-cors: basta sapere che la connessione riesce, non serve leggere il corpo.
+      await fetch(base, { mode: 'no-cors', signal: AbortSignal.timeout(timeout) });
+      risponde = true;
+    } catch (err) {
+      // Un rifiuto per CORS significa comunque che qualcuno ha risposto.
+      risponde = err && err.name === 'TypeError' && !/failed to fetch|load failed|network/i.test(err.message || '');
+    }
+
+    if (risponde) {
+      const info = await detect({ url: base, mode: 'auto', path: '', model: '', token: '' }, true);
+      trovate.push({ porta, base, mode: info.mode, path: info.path, riconosciuto: info.ok, detail: info.detail });
+    }
+  }
+
+  if (onProgress) onProgress({ fatte: daProvare.length, totali: daProvare.length, trovate: trovate.slice() });
+  return trovate;
 }

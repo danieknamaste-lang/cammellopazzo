@@ -241,6 +241,17 @@ const routes = {
     sendJson(res, 200, await connector.status(url.searchParams.get('refresh') === '1'));
   },
 
+  // Cerca su quale porta dell'host risponde il sistema multiagentico
+  'GET /api/scan': async (req, res, url) => {
+    const host = url.searchParams.get('host') || '';
+    if (!host) return sendJson(res, 400, { error: 'Manca il parametro host' });
+    try {
+      sendJson(res, 200, { host, trovate: await connector.scanHost(host) });
+    } catch (err) {
+      sendJson(res, 400, { error: err.message });
+    }
+  },
+
   'POST /api/plan': async (req, res) => {
     const body = await readBody(req);
     const result = await planner.plan(body.text || '', { base: body.base });

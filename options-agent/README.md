@@ -131,6 +131,7 @@ La pagina è una PWA: da Chrome sul telefono, *Aggiungi a schermata Home*.
 | `GET /api/history` · `GET /api/history/:id` · `DELETE /api/history/:id` | storico |
 | `GET/POST /api/presets` · `DELETE /api/presets/:id` | preset |
 | `POST /api/settings` | endpoint, modalità, percorso, modello e token del sistema remoto |
+| `GET /api/scan?host=…` | prova le porte più comuni sull'host e dice quali rispondono e con che interfaccia |
 | `GET /api/diagnostics` | stato completo: configurazione, collegamento, storage, pianificatore, ultimi errori (nessun segreto) |
 | `POST /api/client-error` | la UI registra qui gli errori che mostra, così finiscono nella diagnostica |
 
@@ -166,6 +167,10 @@ sudo chown -R 1000:1000 ~/umbrel/app-data/cammellopazzo-options-agent/data
 
 In ogni caso l'app non muore più: ripiega su una cartella temporanea e lo scrive nel banner giallo in
 cima alla pagina (storico e preset si perdono al riavvio finché non sistemi i permessi).
+
+**Non conosci la porta del sistema.** Scrivi solo l'indirizzo nel campo Endpoint e premi
+**Trova la porta**: vengono provate le porte tipiche (8000, 8080, 5000, 7860, 8501, 11434, 1234…) e
+quelle che rispondono vengono riconosciute e proposte.
 
 **Pallino rosso / "non raggiungibile".** Il container non vede il mini. Ricorda che dentro Docker
 `localhost` è il container stesso: usa l'IP della LAN (`http://10.0.0.12:8000`). Se il sistema gira

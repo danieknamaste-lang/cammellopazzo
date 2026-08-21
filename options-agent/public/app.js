@@ -688,6 +688,38 @@ import * as standalone from './agent/standalone.js';
     }
   }
 
+  /** Prova le porte più comuni sull'indirizzo scritto e propone quella giusta. */
+  async function findPort() {
+    const hint = $('find-port-hint');
+    const indirizzo = $('s-url').value.trim();
+    if (!indirizzo) {
+      hint.textContent = "scrivi prima l'indirizzo del mac (es. 100.101.102.103)";
+      return;
+    }
+
+    $('find-port').disabled = true;
+    hint.textContent = 'cerco… (può volerci un minuto)';
+    try {
+      const esito = await api(`/api/scan?host=${encodeURIComponent(indirizzo)}`);
+      const trovate = esito.trovate || [];
+      if (!trovate.length) {
+        hint.textContent = 'nessuna porta risponde: il mac è raggiungibile via Tailscale? il sistema è avviato?';
+        return;
+      }
+      const migliore = trovate.find((t) => t.mode !== 'json' || t.path) || trovate[0];
+      $('s-url').value = migliore.base;
+      if (migliore.path) $('s-path').value = migliore.path;
+      hint.textContent =
+        `trovata la porta ${migliore.porta} (${migliore.detail || migliore.mode})` +
+        (trovate.length > 1 ? ` — altre: ${trovate.filter((t) => t !== migliore).map((t) => t.porta).join(', ')}` : '') +
+        '. Premi Salva.';
+    } catch (err) {
+      hint.textContent = `ricerca non riuscita: ${err.message}`;
+    } finally {
+      $('find-port').disabled = false;
+    }
+  }
+
   async function testConnection() {
     $('settings-status').textContent = 'provo…';
     try {
@@ -796,6 +828,7 @@ import * as standalone from './agent/standalone.js';
     $('save-settings').addEventListener('click', saveSettings);
     $('test-conn').addEventListener('click', testConnection);
     $('copy-diagnostics').addEventListener('click', copyDiagnostics);
+    $('find-port').addEventListener('click', findPort);
   }
 
   init();

@@ -38,6 +38,12 @@ Usa l'**indirizzo numerico 100.x** (lo leggi nell'app Tailscale accanto al nome 
 MagicDNS non sempre risolvono dentro la WebView. Poi *Salva* → *Prova collegamento*: se il pallino
 diventa verde ci siamo.
 
+**Non sai la porta?** Scrivi solo l'indirizzo (`100.101.102.103`) e premi **Trova la porta**: l'app
+prova le porte più usate dai sistemi di questo tipo — 8000 (uvicorn/FastAPI), 8080, 5000 (Flask),
+7860 (Gradio), 8501 (Streamlit), 11434 (Ollama), 1234 (LM Studio) e altre — e quando qualcosa
+risponde riconosce anche che tipo di interfaccia è, compilando i campi da sola. Ci mette meno di un
+minuto.
+
 ## Come parla col mac
 
 Le richieste partono dal livello nativo di Android (plugin `CapacitorHttp`), non dalla WebView:

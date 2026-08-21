@@ -186,6 +186,14 @@ async function main() {
     assert.deepStrictEqual(data.items[0].query.underlyings, ['SPY']);
   });
 
+  await check('la ricerca della porta trova il sistema', async () => {
+    const porta = Number(new URL(process.env.MULTIAGENT_URL).port);
+    const trovate = await connector.scanHost('127.0.0.1', { porte: [porta, 1], timeout: 1500 });
+    assert.strictEqual(trovate.length, 1, `porte trovate: ${JSON.stringify(trovate)}`);
+    assert.strictEqual(trovate[0].porta, porta);
+    assert.strictEqual(trovate[0].path, '/query');
+  });
+
   await check("il connettore dell'app Android raggiunge il sistema", async () => {
     const client = await import('../public/agent/connector-client.js');
     const impostazioni = { url: process.env.MULTIAGENT_URL, mode: 'auto', path: '', model: '', token: '' };

@@ -113,6 +113,12 @@ export async function handle(percorso, opzioni = {}) {
     };
   }
 
+  if (risorsa === 'scan') {
+    const host = new URLSearchParams(percorso.split('?')[1] || '').get('host') || '';
+    const trovate = await connector.scanPorts(host);
+    return { host, trovate: trovate.map((t) => ({ ...t, detail: t.detail })) };
+  }
+
   if (risorsa === 'status') {
     return connector.status(impostazioni(), percorso.includes('refresh=1'));
   }
