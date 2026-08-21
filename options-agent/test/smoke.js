@@ -126,6 +126,20 @@ async function main() {
     assert.ok(data.answer.includes('ricevuto NVDA'));
   });
 
+  await check('/api/diagnostics riassume stato ed errori', async () => {
+    await fetch(`${base}/api/client-error`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ where: 'test', message: 'errore finto' }),
+    });
+    const report = await (await fetch(`${base}/api/diagnostics`)).json();
+    assert.ok(report.collegamento.ok, 'il collegamento doveva risultare ok');
+    assert.ok(report.storage, 'manca lo stato dello storage');
+    assert.ok(report.errori_recenti.some((e) => e.message === 'errore finto'), 'errore non registrato');
+    assert.strictEqual(report.ambiente.ANTHROPIC_API_KEY, null);
+    assert.ok(!JSON.stringify(report).includes(process.env.MULTIAGENT_TOKEN || '\u0000'), 'segreto trapelato');
+  });
+
   await check('una cartella dati non scrivibile non fa morire l\'app', async () => {
     if (process.getuid && process.getuid() === 0) return; // da root i permessi non si applicano
     const locked = fs.mkdtempSync(path.join(os.tmpdir(), 'options-agent-locked-'));

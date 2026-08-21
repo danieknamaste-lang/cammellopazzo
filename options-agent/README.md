@@ -120,6 +120,8 @@ La pagina è una PWA: da Chrome sul telefono, *Aggiungi a schermata Home*.
 | `GET /api/history` · `GET /api/history/:id` · `DELETE /api/history/:id` | storico |
 | `GET/POST /api/presets` · `DELETE /api/presets/:id` | preset |
 | `POST /api/settings` | endpoint, modalità, percorso, modello e token del sistema remoto |
+| `GET /api/diagnostics` | stato completo: configurazione, collegamento, storage, pianificatore, ultimi errori (nessun segreto) |
+| `POST /api/client-error` | la UI registra qui gli errori che mostra, così finiscono nella diagnostica |
 
 ## Test
 
@@ -131,6 +133,11 @@ Avvia un finto sistema multiagentico e verifica rilevamento, pianificazione, str
 preset. Gira anche in CI a ogni push.
 
 ## Se qualcosa non va
+
+**Prima cosa da fare, da telefono:** ⚙ → **Copia diagnostica**. Raccoglie configurazione,
+collegamento, storage, pianificatore e ultimi errori (segreti esclusi: solo "impostata"/assente) e li
+mette negli appunti — se il browser non lo permette, il testo compare lì sotto da copiare a mano. Lo
+stesso report si ottiene con `curl http://umbrel.local:3100/api/diagnostics`.
 
 **L'app su Umbrel non parte / si riavvia in continuazione.** Guarda i log:
 
