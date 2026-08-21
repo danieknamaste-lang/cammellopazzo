@@ -126,6 +126,27 @@ async function main() {
     assert.ok(data.answer.includes('ricevuto NVDA'));
   });
 
+  await check('una cartella dati non scrivibile non fa morire l\'app', async () => {
+    if (process.getuid && process.getuid() === 0) return; // da root i permessi non si applicano
+    const locked = fs.mkdtempSync(path.join(os.tmpdir(), 'options-agent-locked-'));
+    fs.chmodSync(locked, 0o555);
+    const store = require('../lib/store');
+    const { current } = require('../lib/config');
+    const previous = current.dataDir;
+    current.dataDir = locked;
+    try {
+      const status = await store.ensureDir();
+      assert.ok(status.reason, 'doveva segnalare il problema');
+      assert.strictEqual(status.persistent, false);
+      await store.addHistory({ summary: 'prova', answer: 'ok' });
+    } finally {
+      current.dataDir = previous;
+      await store.ensureDir();
+      fs.chmodSync(locked, 0o755);
+      fs.rmSync(locked, { recursive: true, force: true });
+    }
+  });
+
   await check('i preset si salvano e si rileggono', async () => {
     await fetch(`${base}/api/presets`, {
       method: 'POST',

@@ -221,6 +221,7 @@ const routes = {
     sendJson(res, 200, {
       config: config.publicView(),
       connector: status,
+      storage: store.storageStatus(),
       schema: {
         objectives: schema.OBJECTIVES,
         strategies: schema.STRATEGIES,
@@ -350,14 +351,16 @@ const server = http.createServer(async (req, res) => {
 });
 
 async function start() {
-  await store.ensureDir();
+  const storage = await store.ensureDir();
   await store.loadSettings();
   await new Promise((resolve) => {
     server.listen(config.current.port, config.current.host, () => {
       const status = config.current.multiagent.url || 'non configurato (modalità simulazione)';
       console.log(`Agente opzioni in ascolto su http://${config.current.host}:${server.address().port}`);
       console.log(`Sistema multiagentico: ${status}`);
-      console.log(`Dati persistenti in: ${config.current.dataDir}`);
+      console.log(
+        `Dati in: ${storage.dir}${storage.persistent ? '' : ' (temporanea: si perdono al riavvio)'}`
+      );
       resolve();
     });
   });

@@ -130,6 +130,33 @@ cd options-agent && node test/smoke.js
 Avvia un finto sistema multiagentico e verifica rilevamento, pianificazione, streaming, storico e
 preset. Gira anche in CI a ogni push.
 
+## Se qualcosa non va
+
+**L'app su Umbrel non parte / si riavvia in continuazione.** Guarda i log:
+
+```bash
+sudo docker logs cammellopazzo-options-agent_web_1 --tail 50
+```
+
+Se leggi `EACCES ... /data`, la cartella dati appartiene a root mentre il server gira come utente
+`node`. Dalla versione con `docker-entrypoint.sh` il container sistema i permessi da solo; se hai
+un'installazione vecchia, in alternativa:
+
+```bash
+sudo chown -R 1000:1000 ~/umbrel/app-data/cammellopazzo-options-agent/data
+```
+
+In ogni caso l'app non muore più: ripiega su una cartella temporanea e lo scrive nel banner giallo in
+cima alla pagina (storico e preset si perdono al riavvio finché non sistemi i permessi).
+
+**Pallino rosso / "non raggiungibile".** Il container non vede il mini. Ricorda che dentro Docker
+`localhost` è il container stesso: usa l'IP della LAN (`http://10.0.0.12:8000`). Se il sistema gira
+sullo stesso Umbrel, l'host si raggiunge su `http://10.21.21.1:PORTA`.
+
+**Risposta vuota o strana.** Il rilevamento automatico ha scelto l'interfaccia sbagliata: forza
+`MULTIAGENT_MODE` e `MULTIAGENT_PATH` dalle impostazioni. Il tasto *Prompt inviato* nella card della
+query mostra esattamente cosa è stato spedito.
+
 ## Struttura
 
 ```
@@ -145,5 +172,6 @@ options-agent/
 │   └── store.js         # storico, preset, impostazioni su file
 ├── public/              # interfaccia (mobile first, PWA)
 ├── test/smoke.js        # test end-to-end senza dipendenze
+├── docker-entrypoint.sh # sistema i permessi di /data e lascia i privilegi
 └── Dockerfile
 ```

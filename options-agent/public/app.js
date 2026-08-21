@@ -77,6 +77,17 @@
     $('status-pill').title = connector.detail || '';
   }
 
+  /** Avviso visibile in cima alla pagina: sul telefono la console non si guarda. */
+  function showBanner(text, kind) {
+    const banner = $('banner');
+    if (!text) {
+      banner.classList.add('hidden');
+      return;
+    }
+    banner.textContent = text;
+    banner.className = `banner${kind === 'error' ? ' error' : ''}`;
+  }
+
   function hostOf(url) {
     try {
       return new URL(url).host;
@@ -99,8 +110,11 @@
       buildForm();
       state.query = readForm();
       renderBuilderJson();
+      if (data.storage && data.storage.reason) showBanner(data.storage.reason, data.storage.ok ? 'warn' : 'error');
+      else if (data.connector && !data.connector.ok) showBanner(data.connector.detail, 'error');
     } catch (err) {
       setStatus(null);
+      showBanner(`Impossibile contattare il server dell'app: ${err.message}`, 'error');
       console.error(err);
     }
     loadHistory();
@@ -479,7 +493,7 @@
         box.appendChild(el);
       }
     } catch (err) {
-      console.error(err);
+      showBanner(`Storico non disponibile: ${err.message}`, 'error');
     }
   }
 
@@ -583,6 +597,7 @@
     try {
       const connector = await api('/api/status?refresh=1');
       setStatus(connector);
+      showBanner(connector.ok ? '' : connector.detail, 'error');
       $('settings-status').textContent = `${connector.ok ? 'OK' : 'KO'} · ${connector.detail} (${connector.latencyMs}ms)`;
     } catch (err) {
       $('settings-status').textContent = err.message;
