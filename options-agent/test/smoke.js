@@ -84,6 +84,22 @@ async function main() {
     assert.strictEqual(result.query.constraints.max_risk, 500);
   });
 
+  await check('le regole leggono ticker minuscoli e livello di rischio', async () => {
+    const rules = require('../lib/rules');
+    const wheel = schema.normalizeQuery(rules.extract('Crea un wheel strategy per spcx con basso rischio'));
+    assert.deepStrictEqual(wheel.underlyings, ['SPCX']);
+    assert.strictEqual(wheel.strategy, 'wheel');
+    assert.strictEqual(wheel.risk_profile, 'conservativo');
+
+    const credito = schema.normalizeQuery(rules.extract('Cerca put spread in credito su SPY'));
+    assert.strictEqual(credito.strategy, 'bull_put_spread');
+
+    // le parole comuni dopo una preposizione non devono diventare sottostanti
+    const generico = schema.normalizeQuery(rules.extract('una strategia su questo titolo con rischio contenuto'));
+    assert.deepStrictEqual(generico.underlyings, []);
+    assert.strictEqual(generico.risk_profile, 'conservativo');
+  });
+
   await check('/api/config espone schema e stato', async () => {
     const data = await (await fetch(`${base}/api/config`)).json();
     assert.ok(data.schema.strategies.length > 5);
@@ -124,6 +140,41 @@ async function main() {
     const data = await (await fetch(`${base}/api/history/${historyId}`)).json();
     assert.strictEqual(data.query.strategy, 'iron_condor');
     assert.ok(data.answer.includes('ricevuto NVDA'));
+  });
+
+  await check('/api/diagnostics riassume stato ed errori', async () => {
+    await fetch(`${base}/api/client-error`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ where: 'test', message: 'errore finto' }),
+    });
+    const report = await (await fetch(`${base}/api/diagnostics`)).json();
+    assert.ok(report.collegamento.ok, 'il collegamento doveva risultare ok');
+    assert.ok(report.storage, 'manca lo stato dello storage');
+    assert.ok(report.errori_recenti.some((e) => e.message === 'errore finto'), 'errore non registrato');
+    assert.strictEqual(report.ambiente.ANTHROPIC_API_KEY, null);
+    assert.ok(!JSON.stringify(report).includes(process.env.MULTIAGENT_TOKEN || '\u0000'), 'segreto trapelato');
+  });
+
+  await check('una cartella dati non scrivibile non fa morire l\'app', async () => {
+    if (process.getuid && process.getuid() === 0) return; // da root i permessi non si applicano
+    const locked = fs.mkdtempSync(path.join(os.tmpdir(), 'options-agent-locked-'));
+    fs.chmodSync(locked, 0o555);
+    const store = require('../lib/store');
+    const { current } = require('../lib/config');
+    const previous = current.dataDir;
+    current.dataDir = locked;
+    try {
+      const status = await store.ensureDir();
+      assert.ok(status.reason, 'doveva segnalare il problema');
+      assert.strictEqual(status.persistent, false);
+      await store.addHistory({ summary: 'prova', answer: 'ok' });
+    } finally {
+      current.dataDir = previous;
+      await store.ensureDir();
+      fs.chmodSync(locked, 0o755);
+      fs.rmSync(locked, { recursive: true, force: true });
+    }
   });
 
   await check('i preset si salvano e si rileggono', async () => {

@@ -9,6 +9,7 @@
 
 const fs = require('fs');
 const fsp = fs.promises;
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 
@@ -21,12 +22,57 @@ const files = {
   settings: 'settings.json',
 };
 
+// Se la cartella dati non è scrivibile (bind mount di root, disco pieno, volume
+// in sola lettura) l'app non deve morire: si ripiega su una cartella temporanea
+// e lo dichiara alla UI, invece di andare in crash loop.
+let storage = { ok: true, dir: null, reason: null, persistent: true };
+
 function filePath(name) {
-  return path.join(current.dataDir, files[name] || name);
+  return path.join(storage.dir || current.dataDir, files[name] || name);
+}
+
+async function probe(dir) {
+  await fsp.mkdir(dir, { recursive: true });
+  const token = path.join(dir, `.write-test-${process.pid}`);
+  await fsp.writeFile(token, 'ok');
+  await fsp.unlink(token);
 }
 
 async function ensureDir() {
-  await fsp.mkdir(current.dataDir, { recursive: true });
+  try {
+    await probe(current.dataDir);
+    storage = { ok: true, dir: current.dataDir, reason: null, persistent: true };
+    return storage;
+  } catch (err) {
+    const fallback = path.join(os.tmpdir(), 'options-agent-data');
+    console.error(
+      `Cartella dati non scrivibile (${current.dataDir}): ${err.code || err.message}. ` +
+        'Su Umbrel di solito è la proprietà del volume: prova ' +
+        '`sudo chown -R 1000:1000 ~/umbrel/app-data/cammellopazzo-options-agent/data`.'
+    );
+    try {
+      await probe(fallback);
+      storage = {
+        ok: true,
+        dir: fallback,
+        persistent: false,
+        reason: `${current.dataDir} non è scrivibile (${err.code || err.message}): storico e preset restano in ${fallback} e si perdono al riavvio.`,
+      };
+      console.error(`Uso la cartella temporanea ${fallback}: i dati non sopravvivono al riavvio.`);
+    } catch (fallbackErr) {
+      storage = {
+        ok: false,
+        dir: current.dataDir,
+        persistent: false,
+        reason: `Nessuna cartella scrivibile (${err.code || err.message}): storico e preset non vengono salvati.`,
+      };
+    }
+    return storage;
+  }
+}
+
+function storageStatus() {
+  return Object.assign({}, storage);
 }
 
 async function read(name, fallback) {
@@ -40,11 +86,18 @@ async function read(name, fallback) {
 }
 
 async function write(name, data) {
-  await ensureDir();
+  if (!storage.dir) await ensureDir();
+  if (!storage.ok) return data; // nessuna cartella scrivibile: si continua senza salvare
   const target = filePath(name);
   const tmp = `${target}.${process.pid}.tmp`;
-  await fsp.writeFile(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
-  await fsp.rename(tmp, target);
+  try {
+    await fsp.writeFile(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
+    await fsp.rename(tmp, target);
+  } catch (err) {
+    storage.ok = false;
+    storage.reason = `Scrittura fallita in ${target} (${err.code || err.message}): storico e preset non vengono salvati.`;
+    console.error(storage.reason);
+  }
   return data;
 }
 
@@ -128,6 +181,7 @@ async function saveSettings(settings) {
 
 module.exports = {
   ensureDir,
+  storageStatus,
   listHistory,
   addHistory,
   getHistory,

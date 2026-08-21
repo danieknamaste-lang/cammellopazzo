@@ -323,3 +323,18 @@ dialog form { display: flex; flex-direction: column; gap: 8px; }
 @media (max-width: 420px) {
   .leg-row, .scenario-row { grid-template-columns: repeat(2, 1fr) auto; }
 }
+
+/* ---------- Avvisi ---------- */
+
+.banner {
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--warn);
+  background: rgba(251, 191, 36, 0.12);
+  color: var(--warn);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.banner.error { border-color: var(--danger); background: rgba(248, 113, 113, 0.12); color: var(--danger); }

@@ -32,6 +32,8 @@
       <button class="tab" data-tab="history" role="tab">Storico</button>
     </nav>
 
+    <p class="banner hidden" id="banner"></p>
+
     <main>
       <!-- ---------------------------------------------------------- Chiedi -->
       <section class="panel active" id="panel-ask">
@@ -238,6 +240,11 @@
           <button class="btn ghost" id="test-conn" type="button">Prova collegamento</button>
           <button class="btn primary" id="save-settings" type="button">Salva</button>
         </div>
+        <div class="row">
+          <button class="btn ghost small" id="copy-diagnostics" type="button">Copia diagnostica</button>
+          <span class="hint" id="diagnostics-hint">stato, collegamento e ultimi errori, da incollare in chat</span>
+        </div>
+        <pre class="json hidden" id="diagnostics"></pre>
       </form>
     </dialog>
 

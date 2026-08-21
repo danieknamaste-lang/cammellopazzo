@@ -30,6 +30,8 @@ const schema = require('./lib/schema');
 const planner = require('./lib/planner');
 const connector = require('./lib/connector');
 const store = require('./lib/store');
+const diagnostics = require('./lib/diagnostics');
+const llm = require('./lib/llm');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const MIME = {
@@ -205,6 +207,7 @@ async function handleRun(req, res) {
 
     stream.send({ type: 'done', id: record.id, elapsed_ms: Date.now() - started, steps: steps.length });
   } catch (err) {
+    diagnostics.record('POST /api/run', err.message || String(err), err.code);
     stream.send({ type: 'error', message: err.message || String(err) });
   } finally {
     stream.close();
@@ -221,6 +224,7 @@ const routes = {
     sendJson(res, 200, {
       config: config.publicView(),
       connector: status,
+      storage: store.storageStatus(),
       schema: {
         objectives: schema.OBJECTIVES,
         strategies: schema.STRATEGIES,
@@ -299,6 +303,24 @@ const routes = {
     sendJson(res, 200, { ok: true });
   },
 
+  'GET /api/diagnostics': async (req, res) => {
+    const report = await diagnostics.build({
+      config: config.publicView(),
+      connector: await connector.status(true),
+      storage: store.storageStatus(),
+      llm,
+    });
+    sendJson(res, 200, report);
+  },
+
+  // La UI segnala qui gli errori che mostra all'utente, così finiscono nella
+  // diagnostica anche quando nascono nel browser.
+  'POST /api/client-error': async (req, res) => {
+    const body = await readBody(req);
+    diagnostics.record(`client:${body.where || 'ui'}`, body.message, body.detail);
+    sendJson(res, 200, { ok: true });
+  },
+
   'POST /api/settings': async (req, res) => {
     const body = await readBody(req);
     await store.saveSettings(body);
@@ -344,20 +366,24 @@ const server = http.createServer(async (req, res) => {
   try {
     await match.handler(req, res, url, match.params);
   } catch (err) {
+    diagnostics.record(`${req.method} ${pathname}`, err.message || String(err), err.code);
     if (!res.headersSent) sendJson(res, 500, { error: err.message || String(err) });
     else res.end();
   }
 });
 
 async function start() {
-  await store.ensureDir();
+  const storage = await store.ensureDir();
+  if (storage.reason) diagnostics.record('avvio:storage', storage.reason);
   await store.loadSettings();
   await new Promise((resolve) => {
     server.listen(config.current.port, config.current.host, () => {
       const status = config.current.multiagent.url || 'non configurato (modalità simulazione)';
       console.log(`Agente opzioni in ascolto su http://${config.current.host}:${server.address().port}`);
       console.log(`Sistema multiagentico: ${status}`);
-      console.log(`Dati persistenti in: ${config.current.dataDir}`);
+      console.log(
+        `Dati in: ${storage.dir}${storage.persistent ? '' : ' (temporanea: si perdono al riavvio)'}`
+      );
       resolve();
     });
   });

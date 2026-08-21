@@ -77,6 +77,59 @@
     $('status-pill').title = connector.detail || '';
   }
 
+  /**
+   * Copia negli appunti anche fuori da HTTPS: su http:// (es. http://umbrel.local)
+   * navigator.clipboard non esiste, quindi si ripiega sul vecchio execCommand.
+   */
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {
+      // si prova il metodo legacy qui sotto
+    }
+    try {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.top = '-1000px';
+      document.body.appendChild(area);
+      area.select();
+      area.setSelectionRange(0, text.length);
+      const ok = document.execCommand('copy');
+      area.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Segnala al server un errore mostrato all'utente, così entra nella diagnostica. */
+  function reportError(where, message, detail) {
+    const headers = { 'content-type': 'application/json' };
+    if (token()) headers['x-app-token'] = token();
+    fetch('/api/client-error', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ where, message: String(message), detail: detail ? String(detail) : undefined }),
+    }).catch(() => {});
+  }
+
+  /** Avviso visibile in cima alla pagina: sul telefono la console non si guarda. */
+  function showBanner(text, kind) {
+    const banner = $('banner');
+    if (!text) {
+      banner.classList.add('hidden');
+      return;
+    }
+    banner.textContent = text;
+    banner.className = `banner${kind === 'error' ? ' error' : ''}`;
+    if (kind === 'error') reportError('banner', text);
+  }
+
   function hostOf(url) {
     try {
       return new URL(url).host;
@@ -99,8 +152,11 @@
       buildForm();
       state.query = readForm();
       renderBuilderJson();
+      if (data.storage && data.storage.reason) showBanner(data.storage.reason, data.storage.ok ? 'warn' : 'error');
+      else if (data.connector && !data.connector.ok) showBanner(data.connector.detail, 'error');
     } catch (err) {
       setStatus(null);
+      showBanner(`Impossibile contattare il server dell'app: ${err.message}`, 'error');
       console.error(err);
     }
     loadHistory();
@@ -424,6 +480,7 @@
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
+        reportError('invio', err.message);
         state.answerRaw += `\n\n⚠️ ${err.message}`;
         scheduleRender();
       }
@@ -451,6 +508,7 @@
       $('output-meta').textContent = `${(event.elapsed_ms / 1000).toFixed(1)}s · ${event.steps} passaggio/i`;
       loadHistory();
     } else if (event.type === 'error') {
+      reportError('stream', event.message);
       state.answerRaw += `\n\n⚠️ ${event.message}`;
       scheduleRender();
       $('output-meta').textContent = 'errore';
@@ -479,7 +537,7 @@
         box.appendChild(el);
       }
     } catch (err) {
-      console.error(err);
+      showBanner(`Storico non disponibile: ${err.message}`, 'error');
     }
   }
 
@@ -578,11 +636,29 @@
     }
   }
 
+  async function copyDiagnostics() {
+    const hint = $('diagnostics-hint');
+    hint.textContent = 'raccolgo…';
+    try {
+      const report = await api('/api/diagnostics');
+      const text = JSON.stringify(report, null, 2);
+      $('diagnostics').textContent = text;
+      $('diagnostics').classList.remove('hidden');
+      const copied = await copyText(text);
+      hint.textContent = copied
+        ? 'copiata negli appunti: incollala in chat'
+        : 'appunti non disponibili: copia a mano il testo qui sotto';
+    } catch (err) {
+      hint.textContent = `diagnostica non disponibile: ${err.message}`;
+    }
+  }
+
   async function testConnection() {
     $('settings-status').textContent = 'provo…';
     try {
       const connector = await api('/api/status?refresh=1');
       setStatus(connector);
+      showBanner(connector.ok ? '' : connector.detail, 'error');
       $('settings-status').textContent = `${connector.ok ? 'OK' : 'KO'} · ${connector.detail} (${connector.latencyMs}ms)`;
     } catch (err) {
       $('settings-status').textContent = err.message;
@@ -633,7 +709,11 @@
       if (state.stream) state.stream.abort();
     });
 
-    $('copy-btn').addEventListener('click', () => navigator.clipboard.writeText(state.answerRaw));
+    $('copy-btn').addEventListener('click', async () => {
+      const ok = await copyText(state.answerRaw);
+      $('copy-btn').textContent = ok ? 'Copiato' : 'Copia non riuscita';
+      setTimeout(() => ($('copy-btn').textContent = 'Copia'), 1800);
+    });
     $('toggle-json').addEventListener('click', () => $('query-json').classList.toggle('hidden'));
     $('show-prompt').addEventListener('click', () => $('query-prompt').classList.toggle('hidden'));
     $('edit-in-builder').addEventListener('click', () => {
@@ -663,7 +743,11 @@
     }
 
     $('builder-send').addEventListener('click', () => send({ query: readForm(), refine: $('refine-toggle').checked }));
-    $('builder-copy').addEventListener('click', () => navigator.clipboard.writeText(JSON.stringify(readForm(), null, 2)));
+    $('builder-copy').addEventListener('click', async () => {
+      const ok = await copyText(JSON.stringify(readForm(), null, 2));
+      $('builder-copy').textContent = ok ? 'Copiato' : 'Copia non riuscita';
+      setTimeout(() => ($('builder-copy').textContent = 'Copia JSON'), 1800);
+    });
     $('builder-preset').addEventListener('click', async () => {
       const name = prompt('Nome del preset');
       if (!name) return;
@@ -676,6 +760,7 @@
     $('status-pill').addEventListener('click', testConnection);
     $('save-settings').addEventListener('click', saveSettings);
     $('test-conn').addEventListener('click', testConnection);
+    $('copy-diagnostics').addEventListener('click', copyDiagnostics);
   }
 
   init();
