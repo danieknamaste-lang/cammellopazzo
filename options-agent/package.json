@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "MULTIAGENT_MODE=mock node server.js",
-    "test": "node test/smoke.js"
+    "test": "node test/smoke.js && node test/btc-cycle.js"
   },
   "engines": {
     "node": ">=20"
