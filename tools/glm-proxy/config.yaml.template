@@ -1,0 +1,38 @@
+# LiteLLM — GLM-5.3 via Nous Research
+#
+# Questo file è un TEMPLATE: install.sh lo espande in ~/.glm-proxy/config.yaml
+# sostituendo i segnaposto __GLM_MAIN__ / __GLM_FLASH__ / __NOUS_API_BASE__
+# con gli ID modello realmente presenti nel catalogo Nous.
+#
+# Nota di design: i "model_name" restano stabili (glm-5.3 / glm-5.3-flash)
+# anche se a monte Nous rinomina gli ID. Così l'alias sul portatile non
+# va mai toccato: cambia solo la mappatura interna.
+
+model_list:
+  # Ragionamento pesante -> tier Opus/Sonnet di Claude Code
+  - model_name: glm-5.3
+    litellm_params:
+      model: openai/__GLM_MAIN__
+      api_base: __NOUS_API_BASE__
+      api_key: os.environ/NOUS_API_KEY
+      # Claude Code manda metadata.user_id, che LiteLLM traduce in
+      # prompt_cache_key: un parametro che i gateway di terze parti possono
+      # rifiutare con 400. Va messo QUI (per modello) e non in litellm_settings:
+      # su /v1/messages la versione globale viene ignorata (bug LiteLLM #25931).
+      # Non disabilita il prompt caching: quello passa da cache_control.
+      additional_drop_params: ["prompt_cache_key"]
+
+  # Task piccoli di background -> tier Haiku di Claude Code (molto più economico)
+  - model_name: glm-5.3-flash
+    litellm_params:
+      model: openai/__GLM_FLASH__
+      api_base: __NOUS_API_BASE__
+      api_key: os.environ/NOUS_API_KEY
+      additional_drop_params: ["prompt_cache_key"]
+
+litellm_settings:
+  # Scarta i parametri Anthropic che un endpoint OpenAI-compatibile non capisce
+  # (è il caso di output_config inviato da Claude Code).
+  drop_params: true
+  num_retries: 2
+  request_timeout: 600
