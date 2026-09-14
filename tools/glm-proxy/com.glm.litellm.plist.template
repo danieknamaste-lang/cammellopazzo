@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.glm.litellm</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__GLM_HOME__/run.sh</string>
+    </array>
+
+    <!-- Parte al login e resta sempre su -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Se crasha in loop, non satura la CPU: riprova ogni 10s -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>WorkingDirectory</key>
+    <string>__GLM_HOME__</string>
+
+    <key>StandardOutPath</key>
+    <string>__GLM_HOME__/logs/litellm.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__GLM_HOME__/logs/litellm.err.log</string>
+</dict>
+</plist>
