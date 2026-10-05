@@ -87,6 +87,21 @@ ASSISTANT_NAME=Sofia SYSTEM_PROMPT="Sei Sofia, un'esperta di cucina italiana..."
 
 ---
 
+## Strumenti
+
+### Confronto recupero prezzi vs Bitcoin (Bitfinex)
+
+`tools/bitfinex-recovery.js` scarica le candele giornaliere dall'API pubblica di Bitfinex (nessuna chiave)
+e confronta quanto ogni asset è risalito da una data di riferimento (default 31 agosto) e dal minimo di fine mese,
+segnalando quelli saliti meno di BTC. Se una coppia non è su Bitfinex ripiega su CoinGecko.
+
+```bash
+node tools/bitfinex-recovery.js --from 2026-08-31 --symbols BTC,UNI,AAVE,XPL,ASTER
+node tools/bitfinex-recovery.js --json     # output JSON, utile come tool per un agente
+```
+
+---
+
 ## Agente Opzioni (app Umbrel)
 
 Interfaccia web e agente che trasformano una domanda in italiano in una query strutturata per il
